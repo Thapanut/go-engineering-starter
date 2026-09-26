@@ -23,8 +23,12 @@ linters:
               desc: "core must not depend on adapters (ADR-0002)"
             - pkg: github.com/Thapanut/go-engineering-starter/internal/platform
               desc: "core must not depend on platform infrastructure (ADR-0002)"
-            - pkg: github.com/gin-gonic/gin
-              desc: "HTTP framework belongs in adapter/inbound (ADR-0002)"
+            - pkg: github.com/gofiber/fiber
+              desc: "HTTP framework belongs in adapter/inbound (ADR-0002, ADR-0003)"
+            - pkg: github.com/valyala/fasthttp
+              desc: "HTTP transport belongs in adapter/inbound (ADR-0002, ADR-0003)"
+            - pkg: gorm.io
+              desc: "ORM belongs in adapter/outbound (ADR-0002, ADR-0003)"
             - pkg: github.com/jackc/pgx
               desc: "database driver belongs in adapter/outbound (ADR-0002)"
             - pkg: database/sql

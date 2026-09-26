@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
 	"github.com/Thapanut/go-engineering-starter/internal/platform/auth"
@@ -32,28 +34,32 @@ var secret = []byte("test-secret-at-least-32-bytes-long!!")
 // probeModule is a stand-in feature used to exercise the shared HTTP plumbing.
 type probeModule struct{}
 
-func (probeModule) Register(v1 *gin.RouterGroup) {
-	v1.GET("/whoami", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"customerId": customerIDOf(c)}) })
-	v1.POST("/echo", func(c *gin.Context) {
+func (probeModule) Register(v1 fiber.Router) {
+	v1.Get("/whoami", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"customerId": customerIDOf(c)}) })
+	v1.Post("/echo", func(c *fiber.Ctx) error {
 		var body struct {
 			Name string `json:"name"`
 		}
-		if err := decodeStrict(c.Request.Body, &body); err != nil {
-			writeError(c, slog.Default(), err)
-			return
+		if err := decodeStrict(c, &body); err != nil {
+			return err
 		}
-		c.JSON(http.StatusOK, body)
+		return c.JSON(body)
 	})
-	v1.GET("/fail/:kind", func(c *gin.Context) {
-		errs := map[string]error{
+	v1.Get("/fail/:kind", func(c *fiber.Ctx) error {
+		return map[string]error{
 			"validation": domain.Invalid("name is required"),
 			"notfound":   fmt.Errorf("thing: %w", domain.ErrNotFound),
 			"conflict":   fmt.Errorf("thing: %w", domain.ErrConflict),
 			"internal":   errors.New("pq: connection to 10.0.0.5 refused"),
-		}
-		writeError(c, slog.Default(), errs[c.Param("kind")])
+		}[c.Params("kind")]
 	})
-	v1.GET("/panic", func(*gin.Context) { panic("boom") })
+	v1.Get("/panic", func(*fiber.Ctx) error { panic("boom") })
+	v1.Get("/deadline", func(c *fiber.Ctx) error {
+		if _, ok := c.UserContext().Deadline(); !ok {
+			return errors.New("no deadline on user context")
+		}
+		return c.SendStatus(http.StatusNoContent)
+	})
 }
 
 // syncBuffer is a goroutine-safe log sink.
@@ -75,7 +81,7 @@ func (s *syncBuffer) String() string {
 }
 
 type env struct {
-	h     http.Handler
+	app   *fiber.App
 	jwt   *auth.JWT
 	logs  *syncBuffer
 	ready error
@@ -84,7 +90,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	e := &env{jwt: auth.NewJWT(secret, issuer), logs: &syncBuffer{}}
-	e.h = NewRouter(Deps{
+	e.app = NewApp(Deps{
 		Auth:           e.jwt,
 		Log:            slog.New(slog.NewJSONHandler(e.logs, nil)),
 		RequestTimeout: 5 * time.Second,
@@ -107,34 +113,50 @@ type call struct {
 	headers                   map[string]string
 }
 
-func (e *env) do(t *testing.T, c call) *httptest.ResponseRecorder {
+type response struct {
+	status int
+	header http.Header
+	body   []byte
+}
+
+func (e *env) do(t *testing.T, c call) response {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), c.method, c.path, strings.NewReader(c.body))
+	if c.body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
 	}
-	rec := httptest.NewRecorder()
-	e.h.ServeHTTP(rec, req)
-	return rec
+	res, err := e.app.Test(req, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response{status: res.StatusCode, header: res.Header, body: body}
 }
 
-func assertError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) errorBody {
+func assertError(t *testing.T, r response, status int, code string) errorBody {
 	t.Helper()
-	if rec.Code != status {
-		t.Fatalf("status = %d, want %d; body %s", rec.Code, status, rec.Body.String())
+	if r.status != status {
+		t.Fatalf("status = %d, want %d; body %s", r.status, status, r.body)
 	}
 	var e errorBody
-	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
-		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	if err := json.Unmarshal(r.body, &e); err != nil {
+		t.Fatalf("decode %q: %v", r.body, err)
 	}
 	if e.Code != code || e.Message == "" || e.TraceID == "" {
 		t.Fatalf("error body = %+v, want code %s with message and traceId", e, code)
 	}
-	if rec.Header().Get(headerTraceID) != e.TraceID {
-		t.Fatalf("X-Trace-Id header %q != body traceId %q", rec.Header().Get(headerTraceID), e.TraceID)
+	if r.header.Get(headerTraceID) != e.TraceID {
+		t.Fatalf("X-Trace-Id header %q != body traceId %q", r.header.Get(headerTraceID), e.TraceID)
 	}
 	return e
 }
@@ -148,11 +170,11 @@ func unsignedToken(sub string) string {
 
 func TestProbes(t *testing.T) {
 	e := newEnv(t)
-	if rec := e.do(t, call{method: "GET", path: "/healthz"}); rec.Code != http.StatusOK {
-		t.Fatalf("healthz = %d", rec.Code)
+	if r := e.do(t, call{method: "GET", path: "/healthz"}); r.status != http.StatusOK {
+		t.Fatalf("healthz = %d", r.status)
 	}
-	if rec := e.do(t, call{method: "GET", path: "/readyz"}); rec.Code != http.StatusOK {
-		t.Fatalf("readyz = %d", rec.Code)
+	if r := e.do(t, call{method: "GET", path: "/readyz"}); r.status != http.StatusOK {
+		t.Fatalf("readyz = %d", r.status)
 	}
 	e.ready = errors.New("db down")
 	assertError(t, e.do(t, call{method: "GET", path: "/readyz"}), http.StatusServiceUnavailable, "NOT_READY")
@@ -160,9 +182,9 @@ func TestProbes(t *testing.T) {
 
 func TestAuthenticatedRouteGetsCustomerID(t *testing.T) {
 	e := newEnv(t)
-	rec := e.do(t, call{method: "GET", path: "/v1/whoami", token: e.token(t)})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), customer) {
-		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	r := e.do(t, call{method: "GET", path: "/v1/whoami", token: e.token(t)})
+	if r.status != http.StatusOK || !strings.Contains(string(r.body), customer) {
+		t.Fatalf("status %d body %s", r.status, r.body)
 	}
 }
 
@@ -207,18 +229,24 @@ func TestPanicIsRecovered(t *testing.T) {
 	assertError(t, e.do(t, call{method: "GET", path: "/v1/panic", token: e.token(t)}), http.StatusInternalServerError, "INTERNAL_ERROR")
 }
 
+func TestRequestContextHasDeadline(t *testing.T) {
+	e := newEnv(t)
+	if r := e.do(t, call{method: "GET", path: "/v1/deadline", token: e.token(t)}); r.status != http.StatusNoContent {
+		t.Fatalf("status %d body %s", r.status, r.body)
+	}
+}
+
 func TestStrictJSONDecoding(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t)
-	if rec := e.do(t, call{method: "POST", path: "/v1/echo", token: tok, body: `{"name":"x"}`}); rec.Code != http.StatusOK {
-		t.Fatalf("valid body: status %d", rec.Code)
+	if r := e.do(t, call{method: "POST", path: "/v1/echo", token: tok, body: `{"name":"x"}`}); r.status != http.StatusOK {
+		t.Fatalf("valid body: status %d", r.status)
 	}
 	for name, body := range map[string]string{
-		"unknown field":  `{"name":"x","isAdmin":true}`,
-		"wrong type":     `{"name":1}`,
-		"malformed":      `{"name":`,
-		"trailing data":  `{"name":"x"}{}`,
-		"body too large": `{"name":"` + strings.Repeat("x", maxBodyBytes) + `"}`,
+		"unknown field": `{"name":"x","isAdmin":true}`,
+		"wrong type":    `{"name":1}`,
+		"malformed":     `{"name":`,
+		"trailing data": `{"name":"x"}{}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			assertError(t, e.do(t, call{method: "POST", path: "/v1/echo", token: tok, body: body}), http.StatusBadRequest, "VALIDATION_ERROR")
@@ -226,15 +254,39 @@ func TestStrictJSONDecoding(t *testing.T) {
 	}
 }
 
+// BodyLimit is enforced by fasthttp while reading the request, which app.Test
+// cannot observe, so this test goes through a real listener.
+func TestBodyTooLarge(t *testing.T) {
+	e := newEnv(t)
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = e.app.Listener(ln) }()
+	t.Cleanup(func() { _ = e.app.Shutdown() })
+
+	big := `{"name":"` + strings.Repeat("x", maxBodyBytes) + `"}`
+	req, _ := http.NewRequestWithContext(t.Context(), "POST", "http://"+ln.Addr().String()+"/v1/echo", strings.NewReader(big))
+	req.Header.Set("Authorization", "Bearer "+e.token(t))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	assertError(t, response{status: res.StatusCode, header: res.Header, body: body}, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE")
+}
+
 func TestTraceIDPropagation(t *testing.T) {
 	e := newEnv(t)
-	rec := e.do(t, call{method: "GET", path: "/healthz", headers: map[string]string{headerTraceID: "client-trace-12345"}})
-	if got := rec.Header().Get(headerTraceID); got != "client-trace-12345" {
+	r := e.do(t, call{method: "GET", path: "/healthz", headers: map[string]string{headerTraceID: "client-trace-12345"}})
+	if got := r.header.Get(headerTraceID); got != "client-trace-12345" {
 		t.Fatalf("trace id = %q, want client value", got)
 	}
 	// Malformed incoming ids are replaced, preventing log injection.
-	rec = e.do(t, call{method: "GET", path: "/healthz", headers: map[string]string{headerTraceID: "bad\nvalue"}})
-	if got := rec.Header().Get(headerTraceID); got == "" || strings.ContainsAny(got, "\n ") {
+	r = e.do(t, call{method: "GET", path: "/healthz", headers: map[string]string{headerTraceID: "bad value!"}})
+	if got := r.header.Get(headerTraceID); got == "" || strings.ContainsAny(got, " !") {
 		t.Fatalf("trace id = %q, want generated", got)
 	}
 }
@@ -243,13 +295,14 @@ func TestAccessLogHasNoSensitiveData(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t)
 	e.do(t, call{method: "POST", path: "/v1/echo", token: tok, body: `{"name":"secret-name"}`})
+	e.do(t, call{method: "GET", path: "/v1/fail/notfound", token: tok})
 	logs := e.logs.String()
 	for _, forbidden := range []string{tok, "secret-name", customer} {
 		if strings.Contains(logs, forbidden) {
 			t.Errorf("log contains sensitive value %q:\n%s", forbidden, logs)
 		}
 	}
-	for _, want := range []string{`"route":"/v1/echo"`, `"trace_id"`, `"latency_ms"`, `"status":200`} {
+	for _, want := range []string{`"route":"/v1/echo"`, `"route":"/v1/fail/:kind"`, `"status":404`, `"trace_id"`, `"latency_ms"`, `"status":200`} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("log missing %s:\n%s", want, logs)
 		}
@@ -259,4 +312,7 @@ func TestAccessLogHasNoSensitiveData(t *testing.T) {
 func TestUnknownRouteUsesErrorSchema(t *testing.T) {
 	e := newEnv(t)
 	assertError(t, e.do(t, call{method: "GET", path: "/nope"}), http.StatusNotFound, "NOT_FOUND")
+	if !strings.Contains(e.logs.String(), `"route":"unmatched"`) {
+		t.Errorf("unmatched route not logged as such:\n%s", e.logs.String())
+	}
 }

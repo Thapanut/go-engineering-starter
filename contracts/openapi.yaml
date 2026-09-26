@@ -96,6 +96,13 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    PayloadTooLarge:
+      description: "PAYLOAD_TOO_LARGE (body over 16 KiB)"
+      headers:
+        X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     NotReady:
       description: "NOT_READY"
       headers:
@@ -131,5 +138,6 @@ components:
             - CONFLICT
             - INTERNAL_ERROR
             - NOT_READY
+            - PAYLOAD_TOO_LARGE
         message: { type: string }
         traceId: { type: string }

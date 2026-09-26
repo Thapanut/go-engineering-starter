@@ -32,7 +32,7 @@ If these conflict: contracts > ADR > spec > architecture doc > your assumptions.
 
 ## 4. Tech defaults (override via ADR)
 
-- Go 1.25+ (toolchain pinned in `go.mod`), Gin, PostgreSQL (pgx), Kafka, Redis; Angular frontend
+- Go 1.26+ (toolchain pinned in `go.mod`), **Fiber v2**, PostgreSQL via **GORM** (ADR-0003), Kafka, Redis; Angular frontend
 - **Hexagonal architecture (ADR-0002)** — dependencies point inward only:
   - `internal/core/domain` entities, value objects, errors — stdlib only
   - `internal/core/port` inbound (use-case) and outbound (repository, tx, clock, id) interfaces

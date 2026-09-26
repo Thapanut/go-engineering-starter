@@ -1,9 +1,9 @@
 # Go Engineering Starter
 
-Base project สำหรับ Go service แบบ **Hexagonal (Ports & Adapters)** พร้อม flow **คน design → AI implement → คน verify**
+Base project สำหรับ Go service แบบ **Hexagonal (Ports & Adapters)** บน **Fiber v2 + GORM + PostgreSQL** พร้อม flow **คน design → AI implement → คน verify**
 ใช้ได้ทั้ง **Antigravity** (อ่าน `.agents/` ตรง ๆ) และ **VS Code** (Copilot / Claude Code)
 
-## สถาปัตยกรรม — [ADR-0002](docs/01-architecture/adr/0002-hexagonal-architecture.md)
+## สถาปัตยกรรม — [ADR-0002](docs/01-architecture/adr/0002-hexagonal-architecture.md), [ADR-0003](docs/01-architecture/adr/0003-fiber-and-gorm.md)
 ```
 cmd/api/                         composition root: อ่าน config, เลือก adapter, wire เข้า core
 cmd/devtoken/                    ออก JWT สำหรับ dev
@@ -13,9 +13,9 @@ internal/
     port/                          inbound (use case) และ outbound (TxManager, repositories, Clock, IDGenerator)
     service/                       implementation ของ use case
   adapter/
-    inbound/httpapi/               Gin: Module ต่อ feature, middleware (auth, trace id, timeout, body limit, recovery),
-                                   strict JSON decode, domain error → contract error code
-    outbound/postgres/             pgx TxManager (READ COMMITTED, rollback อัตโนมัติ)
+    inbound/httpapi/               Fiber v2: Module ต่อ feature, middleware (auth, trace id, timeout, recovery),
+                                   body limit, strict JSON decode, central ErrorHandler → contract error code
+    outbound/postgres/             GORM: TxManager (READ COMMITTED, rollback เมื่อ error/panic), pool, SQL log แบบไม่มีค่า parameter
     outbound/memory/               in-memory store (unit test / รันแบบไม่ต้องมี DB)
     outbound/system/               clock, UUID
   platform/                      config (env), logger (slog JSON), auth (JWT)
@@ -23,16 +23,16 @@ migrations/                      SQL (golang-migrate naming)
 contracts/openapi.yaml           API truth
 ```
 - dependency ชี้เข้าข้างในเท่านั้น: `adapter → port ← service → domain`
-- ขอบเขตบังคับด้วย `depguard` ใน `.golangci.yml`: ถ้า `core` import Gin, pgx, net/http, database/sql, `platform` หรือ `adapter` → `make lint` fail
+- ขอบเขตบังคับด้วย `depguard` ใน `.golangci.yml`: ถ้า `core` import Fiber, fasthttp, GORM, pgx, net/http, database/sql, `platform` หรือ `adapter` → `make lint` fail
 - เปลี่ยน DB หรือเพิ่ม gRPC/Kafka consumer = เพิ่ม adapter ใหม่ ไม่ต้องแตะ core
 
 ## เพิ่ม feature ใหม่
 1. `domain/` — entity, value object, error ของ feature
 2. `port/<feature>.go` — inbound interface (use case) และ outbound repository interface; เพิ่ม field ใน `port.Repositories`
 3. `service/` — implement use case ด้วย `TxManager.WithinTx` + unit test กับ memory adapter
-4. `adapter/outbound/postgres` + `memory` — implement repository; migration ใหม่ใน `migrations/`
-5. `adapter/inbound/httpapi` — handler type ที่ implement `Module` แล้ว map error ใน `errors.go`
-6. `cmd/api/main.go` — wire service + ส่ง module เข้า `NewRouter`
+4. `adapter/outbound/postgres` (GORM model ของ adapter เอง ไม่ใส่ tag ใน domain) + `memory` — implement repository; migration ใหม่ใน `migrations/` (ไม่ใช้ `AutoMigrate`)
+5. `adapter/inbound/httpapi` — handler type ที่ implement `Module`, handler `return err` แล้ว map error ใน `errors.go`
+6. `cmd/api/main.go` — wire service + ส่ง module เข้า `NewApp`
 7. อัปเดต `contracts/openapi.yaml` ก่อน/พร้อมโค้ด แล้ว `make verify`
 
 ## รันบนเครื่อง

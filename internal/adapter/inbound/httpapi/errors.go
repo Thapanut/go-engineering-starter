@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
 )
@@ -30,14 +30,16 @@ var (
 	errInternal      = &apiError{http.StatusInternalServerError, "INTERNAL_ERROR", "internal error"}
 	errNotReady      = &apiError{http.StatusServiceUnavailable, "NOT_READY", "service is not ready"}
 	errRouteNotFound = &apiError{http.StatusNotFound, "NOT_FOUND", "route not found"}
+	errTooLarge      = &apiError{http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body too large"}
 )
 
-// toAPIError maps domain errors to contract error codes. Unknown errors become
+// toAPIError maps errors to contract error codes. Unknown errors become
 // INTERNAL_ERROR so internals never reach the client. Add feature-specific
 // cases here together with their code in contracts/openapi.yaml.
 func toAPIError(err error) (*apiError, bool) {
 	var ae *apiError
 	var ve *domain.ValidationError
+	var fe *fiber.Error
 	switch {
 	case errors.As(err, &ae):
 		return ae, true
@@ -49,15 +51,22 @@ func toAPIError(err error) (*apiError, bool) {
 		return &apiError{http.StatusNotFound, "NOT_FOUND", "resource not found"}, true
 	case errors.Is(err, domain.ErrConflict):
 		return &apiError{http.StatusConflict, "CONFLICT", "request conflicts with current state"}, true
+	case errors.As(err, &fe) && fe.Code == fiber.StatusRequestEntityTooLarge:
+		return errTooLarge, true
+	case errors.As(err, &fe) && fe.Code == fiber.StatusNotFound:
+		return errRouteNotFound, true
 	default:
 		return errInternal, false
 	}
 }
 
-func writeError(c *gin.Context, log *slog.Logger, err error) {
-	ae, known := toAPIError(err)
-	if !known {
-		log.Error("request failed", slog.String("error", err.Error()), slog.String("trace_id", traceIDOf(c)))
+// errorHandler is Fiber's central error handler: handlers just `return err`.
+func errorHandler(log *slog.Logger) fiber.ErrorHandler {
+	return func(c *fiber.Ctx, err error) error {
+		ae, known := toAPIError(err)
+		if !known {
+			log.Error("request failed", slog.String("error", err.Error()), slog.String("trace_id", traceIDOf(c)))
+		}
+		return c.Status(ae.status).JSON(errorBody{Code: ae.code, Message: ae.message, TraceID: traceIDOf(c)})
 	}
-	c.AbortWithStatusJSON(ae.status, errorBody{Code: ae.code, Message: ae.message, TraceID: traceIDOf(c)})
 }

@@ -27,11 +27,11 @@ cmd/<app>/                     composition root: config, wiring, lifecycle
 internal/core/domain/          entities, value objects, domain errors (stdlib only)
 internal/core/port/            inbound (use-case) and outbound (driven) interfaces
 internal/core/service/         use-case implementations; depend on ports only
-internal/adapter/inbound/http  Gin handlers, DTOs, middleware, error → contract mapping
-internal/adapter/outbound/*    postgres, memory, … implement outbound ports
+internal/adapter/inbound/http  HTTP handlers, DTOs, middleware, error → contract mapping
+internal/adapter/outbound/*    postgres, memory, … implement outbound ports (library choice: ADR-0003)
 internal/platform/*            cross-cutting infra (config, logging, auth) used by adapters and cmd
 ```
-- `core` imports nothing from `adapter`, `platform`, Gin, or pgx.
+- `core` imports nothing from `adapter`, `platform`, an HTTP framework, an ORM, or a DB driver.
 - Adapters depend on `core`, never on each other.
 - Transactions are a port (`TxManager.WithinTx`), so the core decides the unit of work without knowing SQL.
 

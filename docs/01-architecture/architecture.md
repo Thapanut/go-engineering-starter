@@ -20,7 +20,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph inbound[Inbound adapters]
-    http[HTTP / Gin<br/>modules, DTOs, middleware]
+    http[HTTP / Fiber v2<br/>modules, DTOs, middleware]
   end
   subgraph core[Core — no framework imports]
     inport([inbound ports<br/>use cases])
@@ -29,7 +29,7 @@ flowchart LR
     outport([outbound ports<br/>TxManager, repositories,<br/>Clock, IDGenerator])
   end
   subgraph outbound[Outbound adapters]
-    pg[(postgres)]
+    pg[(postgres / GORM)]
     mem[(memory)]
   end
   http --> inport --> svc --> dom
@@ -53,6 +53,7 @@ Dependencies always point **inward**. `cmd/api/main.go` is the only place that k
 ## 6. Decisions
 - [ADR-0001 Record architecture decisions](adr/0001-record-architecture-decisions.md)
 - [ADR-0002 Hexagonal architecture (ports & adapters)](adr/0002-hexagonal-architecture.md)
+- [ADR-0003 Fiber v2 for HTTP, GORM for PostgreSQL](adr/0003-fiber-and-gorm.md)
 
 ## 7. Risks & mitigations
 | Risk | Impact | Mitigation |

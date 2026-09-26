@@ -4,104 +4,122 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/utils"
 )
 
 const (
-	headerTraceID = "X-Trace-Id"
-	ctxTraceID    = "traceID"
-	ctxCustomerID = "customerID"
-	maxBodyBytes  = 16 << 10 // 16 KiB
+	headerTraceID   = "X-Trace-Id"
+	localTraceID    = "traceID"
+	localCustomerID = "customerID"
+	localUnmatched  = "unmatched"
+	maxBodyBytes    = 16 << 10 // 16 KiB
 )
 
 // Only accept well-formed incoming trace ids, so clients cannot inject into logs.
 var traceIDRe = regexp.MustCompile(`^[A-Za-z0-9-]{8,64}$`)
 
-func traceID() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.GetHeader(headerTraceID)
+func traceID() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		id := utils.CopyString(c.Get(headerTraceID)) // fasthttp reuses header memory
 		if !traceIDRe.MatchString(id) {
-			var b [16]byte
-			_, _ = rand.Read(b[:])
-			id = hex.EncodeToString(b[:])
+			id = newTraceID()
 		}
-		c.Set(ctxTraceID, id)
-		c.Header(headerTraceID, id)
-		c.Next()
+		c.Locals(localTraceID, id)
+		c.Set(headerTraceID, id)
+		return c.Next()
 	}
 }
 
-func traceIDOf(c *gin.Context) string { return c.GetString(ctxTraceID) }
+func newTraceID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
 
-func customerIDOf(c *gin.Context) string { return c.GetString(ctxCustomerID) }
+// traceIDOf returns the request's trace id. Requests rejected by fasthttp before
+// any middleware ran (e.g. body over BodyLimit) get one generated here.
+func traceIDOf(c *fiber.Ctx) string {
+	if id, ok := c.Locals(localTraceID).(string); ok {
+		return id
+	}
+	id := newTraceID()
+	c.Locals(localTraceID, id)
+	c.Set(headerTraceID, id)
+	return id
+}
+
+// customerIDOf returns the authenticated customer id set by the auth middleware.
+func customerIDOf(c *fiber.Ctx) string {
+	id, _ := c.Locals(localCustomerID).(string)
+	return id
+}
 
 // accessLog writes one line per request with the route template, never the raw
 // path, body, query, or headers, so ids and tokens stay out of logs.
-func accessLog(log *slog.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
+func accessLog(log *slog.Logger) fiber.Handler {
+	return func(c *fiber.Ctx) error {
 		start := time.Now()
-		c.Next()
-		route := c.FullPath()
-		if route == "" {
+		if err := c.Next(); err != nil {
+			// Render the error here so the logged status is the one the client gets.
+			if herr := c.App().ErrorHandler(c, err); herr != nil {
+				_ = c.SendStatus(fiber.StatusInternalServerError)
+			}
+		}
+		route := c.Route().Path
+		if unmatched, _ := c.Locals(localUnmatched).(bool); unmatched {
 			route = "unmatched"
 		}
-		log.LogAttrs(c.Request.Context(), slog.LevelInfo, "http_request",
-			slog.String("method", c.Request.Method),
+		log.LogAttrs(c.UserContext(), slog.LevelInfo, "http_request",
+			slog.String("method", c.Method()),
 			slog.String("route", route),
-			slog.Int("status", c.Writer.Status()),
+			slog.Int("status", c.Response().StatusCode()),
 			slog.Int64("latency_ms", time.Since(start).Milliseconds()),
 			slog.String("trace_id", traceIDOf(c)),
 		)
+		return nil
 	}
 }
 
-func recovery(log *slog.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
+func recovery(log *slog.Logger) fiber.Handler {
+	return func(c *fiber.Ctx) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Error("panic recovered", slog.Any("panic", r), slog.String("trace_id", traceIDOf(c)))
-				writeError(c, log, errInternal)
+				log.Error("panic recovered", slog.String("panic", fmt.Sprint(r)), slog.String("trace_id", traceIDOf(c)))
+				err = errInternal
 			}
 		}()
-		c.Next()
+		return c.Next()
 	}
 }
 
-func requestTimeout(d time.Duration) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), d)
+// requestTimeout bounds downstream work: handlers must pass c.UserContext() to ports.
+func requestTimeout(d time.Duration) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		ctx, cancel := context.WithTimeout(c.UserContext(), d)
 		defer cancel()
-		c.Request = c.Request.WithContext(ctx)
-		c.Next()
+		c.SetUserContext(ctx)
+		return c.Next()
 	}
 }
 
-func limitBody(n int64) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, n)
-		c.Next()
-	}
-}
-
-func authenticate(a Authenticator, log *slog.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		scheme, token, ok := strings.Cut(c.GetHeader("Authorization"), " ")
+func authenticate(a Authenticator) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		scheme, token, ok := strings.Cut(c.Get(fiber.HeaderAuthorization), " ")
 		if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
-			writeError(c, log, errUnauthorized)
-			return
+			return errUnauthorized
 		}
 		customerID, err := a.Authenticate(token)
 		if err != nil {
-			writeError(c, log, errUnauthorized)
-			return
+			return errUnauthorized
 		}
-		c.Set(ctxCustomerID, customerID)
-		c.Next()
+		c.Locals(localCustomerID, customerID)
+		return c.Next()
 	}
 }
