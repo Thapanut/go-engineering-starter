@@ -16,7 +16,9 @@ import (
 // Repositories are the repositories bound to one unit of work.
 // Add one field per repository port as features are introduced, and implement it
 // in every outbound adapter (postgres, memory).
-type Repositories struct{}
+type Repositories struct {
+	Payments PaymentRepository
+}
 
 // TxManager runs fn in one atomic unit of work. If fn returns an error, nothing is persisted.
 type TxManager interface {

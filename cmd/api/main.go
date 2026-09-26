@@ -14,7 +14,10 @@ import (
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/inbound/httpapi"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/memory"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/postgres"
+	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/system"
+	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/twoc2p"
 	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/service"
 	"github.com/Thapanut/go-engineering-starter/internal/platform/auth"
 	"github.com/Thapanut/go-engineering-starter/internal/platform/config"
 	"github.com/Thapanut/go-engineering-starter/internal/platform/logger"
@@ -43,15 +46,18 @@ func run() error {
 	}
 	defer st.close()
 
-	// Wire features here: build each service with st.tx (plus system.Clock{} and
-	// system.UUIDGenerator{} as needed) and pass its HTTP module to NewApp.
-	_ = st.tx
+	// Wire features: each service gets its outbound adapters; its HTTP module goes to NewApp.
+	webhooks := service.NewWebhookService(
+		twoc2p.NewValidator(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, log)
+
 	app := httpapi.NewApp(httpapi.Deps{
 		Auth:           auth.NewJWT(cfg.JWTSecret, cfg.JWTIssuer),
 		Log:            log,
 		RequestTimeout: cfg.RequestTimeout,
 		Ready:          st.ready,
-	})
+	},
+		httpapi.WebhookModule{UseCase: webhooks},
+	)
 
 	errCh := make(chan error, 1)
 	go func() {

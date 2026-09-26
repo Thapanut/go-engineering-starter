@@ -93,9 +93,10 @@ func (m *TxManager) WithinTx(ctx context.Context, fn func(ctx context.Context, r
 	return m.inTx(ctx, func(tx *gorm.DB) error { return fn(ctx, newRepositories(tx)) })
 }
 
-// newRepositories binds every repository to tx. Add one line per repository port,
-// e.g. Accounts: accountRepo{db: tx}.
-func newRepositories(_ *gorm.DB) port.Repositories { return port.Repositories{} }
+// newRepositories binds every repository to tx. Add one line per repository port.
+func newRepositories(tx *gorm.DB) port.Repositories {
+	return port.Repositories{Payments: paymentRepo{db: tx}}
+}
 
 func (m *TxManager) inTx(ctx context.Context, fn func(tx *gorm.DB) error) error {
 	return m.db.WithContext(ctx).Transaction(fn, &sql.TxOptions{Isolation: sql.LevelReadCommitted})

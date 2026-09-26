@@ -40,7 +40,7 @@ flowchart LR
 Dependencies always point **inward**. `cmd/api/main.go` is the only place that knows every concrete type.
 
 ## 4. Key flows
-<Sequence diagrams for the 2–3 riskiest flows.>
+- 2C2P payment webhook (idempotent state transition): see [spec §3](../02-specs/2c2p-payment-webhook.md#3-design-notes-from-architect).
 
 ## 5. Non-functional requirements
 | NFR | Target |

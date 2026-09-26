@@ -49,6 +49,10 @@ func toAPIError(err error) (*apiError, bool) {
 		return &apiError{http.StatusBadRequest, "VALIDATION_ERROR", "invalid request"}, true
 	case errors.Is(err, domain.ErrNotFound):
 		return &apiError{http.StatusNotFound, "NOT_FOUND", "resource not found"}, true
+	case errors.Is(err, domain.ErrInvalidSignature):
+		return &apiError{http.StatusUnauthorized, "INVALID_SIGNATURE", "webhook signature is invalid"}, true
+	case errors.Is(err, domain.ErrPaymentMismatch):
+		return &apiError{http.StatusUnprocessableEntity, "PAYMENT_MISMATCH", "notification does not match the payment"}, true
 	case errors.Is(err, domain.ErrConflict):
 		return &apiError{http.StatusConflict, "CONFLICT", "request conflicts with current state"}, true
 	case errors.As(err, &fe) && fe.Code == fiber.StatusRequestEntityTooLarge:

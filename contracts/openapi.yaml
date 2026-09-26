@@ -15,6 +15,8 @@ security:
 tags:
   - name: health
     description: Liveness and readiness probes for the platform
+  - name: webhooks
+    description: Callbacks from payment providers, authenticated by signature
 paths:
   /healthz:
     get:
@@ -49,6 +51,58 @@ paths:
                 properties:
                   status: { type: string, example: ready }
         "503": { $ref: "#/components/responses/NotReady" }
+  /webhooks/2c2p:
+    post:
+      operationId: receive2c2pPaymentNotification
+      summary: 2C2P PGW v4 backend payment notification (idempotent)
+      description: |
+        Body is signed by 2C2P as a JWT (HS256 = HMAC-SHA256 with the merchant Secret Key).
+        Redelivery of an already-applied notification returns 200 with outcome DUPLICATE
+        and changes nothing. See docs/02-specs/2c2p-payment-webhook.md.
+      tags: [webhooks]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload]
+              properties:
+                payload:
+                  type: string
+                  description: Compact JWT (HS256) whose claims carry merchantID, invoiceNo, amount, currencyCode, tranRef, respCode
+      responses:
+        "200":
+          description: Notification accepted
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, outcome]
+                properties:
+                  status: { type: string, enum: [OK] }
+                  outcome: { type: string, enum: [PROCESSED, DUPLICATE, CONFLICT_IGNORED] }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: "INVALID_SIGNATURE"
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "422":
+          description: "PAYMENT_MISMATCH (amount or currency differs from the stored payment)"
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/InternalError" }
 components:
   securitySchemes:
     bearerAuth:
@@ -139,5 +193,7 @@ components:
             - INTERNAL_ERROR
             - NOT_READY
             - PAYLOAD_TOO_LARGE
+            - INVALID_SIGNATURE
+            - PAYMENT_MISMATCH
         message: { type: string }
         traceId: { type: string }

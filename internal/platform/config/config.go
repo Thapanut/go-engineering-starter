@@ -27,6 +27,9 @@ type Config struct {
 	JWTIssuer      string
 	LogLevel       string
 	RequestTimeout time.Duration
+	// 2C2P merchant credentials for webhook verification.
+	TwoC2PMerchantID string
+	TwoC2PSecretKey  []byte
 }
 
 // Load reads and validates configuration from the environment.
@@ -37,6 +40,9 @@ func Load() (Config, error) {
 		JWTSecret:   []byte(os.Getenv("JWT_SECRET")),
 		JWTIssuer:   os.Getenv("JWT_ISSUER"),
 		LogLevel:    getenv("LOG_LEVEL", "info"),
+
+		TwoC2PMerchantID: os.Getenv("TWOC2P_MERCHANT_ID"),
+		TwoC2PSecretKey:  []byte(os.Getenv("TWOC2P_SECRET_KEY")),
 	}
 	var errs []error
 	port, err := strconv.Atoi(getenv("APP_PORT", "8080"))
@@ -62,6 +68,12 @@ func Load() (Config, error) {
 	}
 	if c.JWTIssuer == "" {
 		errs = append(errs, errors.New("JWT_ISSUER is required"))
+	}
+	if c.TwoC2PMerchantID == "" {
+		errs = append(errs, errors.New("TWOC2P_MERCHANT_ID is required"))
+	}
+	if len(c.TwoC2PSecretKey) < 32 {
+		errs = append(errs, errors.New("TWOC2P_SECRET_KEY must be at least 32 bytes"))
 	}
 	return c, errors.Join(errs...)
 }
