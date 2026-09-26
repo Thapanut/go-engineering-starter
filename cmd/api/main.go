@@ -46,7 +46,8 @@ func run() error {
 	}
 	defer st.close()
 
-	// Wire features: each service gets its outbound adapters; its HTTP module goes to NewApp.
+	// Wire features: each service gets its outbound adapters; its HTTP module goes to
+	// NewApp (JWT-protected modules as arguments, signature-authenticated ones in Public).
 	webhooks := service.NewWebhookService(
 		twoc2p.NewValidator(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, log)
 
@@ -55,9 +56,8 @@ func run() error {
 		Log:            log,
 		RequestTimeout: cfg.RequestTimeout,
 		Ready:          st.ready,
-	},
-		httpapi.WebhookModule{UseCase: webhooks},
-	)
+		Public:         []httpapi.PublicModule{httpapi.WebhookModule{UseCase: webhooks}},
+	})
 
 	errCh := make(chan error, 1)
 	go func() {

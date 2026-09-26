@@ -79,7 +79,7 @@ func (v *Validator) Verify(_ context.Context, rawBody []byte) (domain.PaymentNot
 	if err := json.Unmarshal(payload, &c); err != nil {
 		return domain.PaymentNotification{}, domain.Invalid("malformed notification payload")
 	}
-	if !hmac.Equal([]byte(c.MerchantID), []byte(v.merchantID)) {
+	if c.MerchantID != v.merchantID {
 		return domain.PaymentNotification{}, domain.ErrInvalidSignature
 	}
 	amount, err := parseMinorUnits(c.Amount)

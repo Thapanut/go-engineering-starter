@@ -27,9 +27,9 @@ type Module interface {
 	Register(v1 fiber.Router)
 }
 
-// PublicModule is an optional interface for modules that also expose routes
-// outside the JWT-protected /v1 group, e.g. provider webhooks that authenticate
-// by signature. Use it sparingly: every public route must authenticate itself.
+// PublicModule registers routes outside the JWT-protected /v1 group, e.g. provider
+// webhooks that authenticate by signature. Use it sparingly: every public route
+// must authenticate itself.
 type PublicModule interface {
 	RegisterPublic(r fiber.Router)
 }
@@ -41,6 +41,8 @@ type Deps struct {
 	RequestTimeout time.Duration
 	// Ready reports whether dependencies (e.g. the database) are reachable.
 	Ready func(ctx context.Context) error
+	// Public modules are registered before the /v1 auth group.
+	Public []PublicModule
 }
 
 // NewApp builds the Fiber app with middleware, probes, and feature modules.
@@ -67,10 +69,8 @@ func NewApp(d Deps, modules ...Module) *fiber.App {
 		return c.JSON(fiber.Map{"status": "ready"})
 	})
 
-	for _, m := range modules {
-		if pm, ok := m.(PublicModule); ok {
-			pm.RegisterPublic(app)
-		}
+	for _, m := range d.Public {
+		m.RegisterPublic(app)
 	}
 	v1 := app.Group("/v1", authenticate(d.Auth)) // deny by default for everything under /v1
 	for _, m := range modules {

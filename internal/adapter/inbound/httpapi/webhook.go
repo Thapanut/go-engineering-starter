@@ -12,13 +12,7 @@ type WebhookModule struct {
 	UseCase port.WebhookUseCase
 }
 
-var (
-	_ Module       = WebhookModule{}
-	_ PublicModule = WebhookModule{}
-)
-
-// Register adds no JWT-protected routes.
-func (WebhookModule) Register(fiber.Router) {}
+var _ PublicModule = WebhookModule{}
 
 // RegisterPublic adds POST /webhooks/2c2p.
 func (m WebhookModule) RegisterPublic(r fiber.Router) {
