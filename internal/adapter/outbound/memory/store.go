@@ -27,9 +27,8 @@ func (s state) clone() state {
 
 // Store implements port.TxManager; each tx gets repositories bound to its working copy.
 type Store struct {
-	mu     sync.Mutex
-	st     state
-	writes int // committed UpdateOutcome calls, for tests
+	mu sync.Mutex
+	st state
 }
 
 var _ port.TxManager = (*Store)(nil)
@@ -47,36 +46,16 @@ func (s *Store) WithinTx(ctx context.Context, fn func(ctx context.Context, r por
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	work := s.st.clone()
-	payments := &paymentRepo{st: &work}
-	if err := fn(ctx, port.Repositories{Payments: payments}); err != nil {
+	if err := fn(ctx, port.Repositories{Payments: paymentRepo{st: &work}}); err != nil {
 		return err
 	}
 	s.st = work
-	s.writes += payments.writes
 	return nil
 }
 
-// Payment returns a committed payment snapshot by invoice number (test helper).
-func (s *Store) Payment(invoiceNo string) (domain.Payment, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, ok := s.st.payments[s.st.byInvoice[invoiceNo]]
-	return p, ok
-}
+type paymentRepo struct{ st *state }
 
-// OutcomeWrites returns how many payment outcome updates were committed (test helper).
-func (s *Store) OutcomeWrites() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.writes
-}
-
-type paymentRepo struct {
-	st     *state
-	writes int
-}
-
-func (r *paymentRepo) Create(_ context.Context, p domain.Payment) error {
+func (r paymentRepo) Create(_ context.Context, p domain.Payment) error {
 	if _, dup := r.st.byInvoice[p.InvoiceNo]; dup {
 		return domain.ErrConflict
 	}
@@ -85,7 +64,7 @@ func (r *paymentRepo) Create(_ context.Context, p domain.Payment) error {
 	return nil
 }
 
-func (r *paymentRepo) GetByInvoiceNoForUpdate(_ context.Context, invoiceNo string) (domain.Payment, error) {
+func (r paymentRepo) GetByInvoiceNoForUpdate(_ context.Context, invoiceNo string) (domain.Payment, error) {
 	id, ok := r.st.byInvoice[invoiceNo]
 	if !ok {
 		return domain.Payment{}, domain.ErrNotFound
@@ -93,13 +72,12 @@ func (r *paymentRepo) GetByInvoiceNoForUpdate(_ context.Context, invoiceNo strin
 	return r.st.payments[id], nil
 }
 
-func (r *paymentRepo) UpdateOutcome(_ context.Context, p domain.Payment) error {
+func (r paymentRepo) UpdateOutcome(_ context.Context, p domain.Payment) error {
 	cur, ok := r.st.payments[p.ID]
 	if !ok || cur.Status != domain.PaymentPending {
 		return domain.ErrConflict
 	}
 	cur.Status, cur.ProviderRef, cur.ProviderCode, cur.UpdatedAt = p.Status, p.ProviderRef, p.ProviderCode, p.UpdatedAt
 	r.st.payments[p.ID] = cur
-	r.writes++
 	return nil
 }

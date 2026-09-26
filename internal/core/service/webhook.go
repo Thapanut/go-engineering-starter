@@ -12,24 +12,24 @@ import (
 // WebhookService implements port.WebhookUseCase.
 // See docs/02-specs/2c2p-payment-webhook.md.
 type WebhookService struct {
-	validator port.WebhookSignatureValidator
-	tx        port.TxManager
-	clock     port.Clock
-	log       *slog.Logger
+	verifier port.WebhookVerifier
+	tx       port.TxManager
+	clock    port.Clock
+	log      *slog.Logger
 }
 
 var _ port.WebhookUseCase = (*WebhookService)(nil)
 
 // NewWebhookService wires the service to its outbound ports.
-func NewWebhookService(v port.WebhookSignatureValidator, tx port.TxManager, clock port.Clock, log *slog.Logger) *WebhookService {
-	return &WebhookService{validator: v, tx: tx, clock: clock, log: log}
+func NewWebhookService(v port.WebhookVerifier, tx port.TxManager, clock port.Clock, log *slog.Logger) *WebhookService {
+	return &WebhookService{verifier: v, tx: tx, clock: clock, log: log}
 }
 
 // HandlePaymentNotification verifies the webhook, then applies it to the payment
 // in one transaction. Duplicate deliveries return OutcomeDuplicate without any
 // write (spec AC-03, AC-10).
 func (s *WebhookService) HandlePaymentNotification(ctx context.Context, rawBody []byte) (port.WebhookResult, error) {
-	n, err := s.validator.Verify(ctx, rawBody)
+	n, err := s.verifier.Verify(ctx, rawBody)
 	if err != nil {
 		return port.WebhookResult{}, err // AC-05, AC-06: nothing touches the DB
 	}

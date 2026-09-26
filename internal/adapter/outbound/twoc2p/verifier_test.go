@@ -45,7 +45,7 @@ func signed(t *testing.T, key []byte, overrides map[string]any) []byte {
 }
 
 func TestVerifyDecodesValidNotification(t *testing.T) {
-	v := NewValidator(secret, merchantID)
+	v := NewVerifier(secret, merchantID)
 	n, err := v.Verify(context.Background(), signed(t, secret, nil))
 	if err != nil {
 		t.Fatal(err)
@@ -58,14 +58,14 @@ func TestVerifyDecodesValidNotification(t *testing.T) {
 }
 
 func TestVerifyMapsNonSuccessCodeToFailed(t *testing.T) {
-	n, err := NewValidator(secret, merchantID).Verify(context.Background(), signed(t, secret, map[string]any{"respCode": "4001"}))
+	n, err := NewVerifier(secret, merchantID).Verify(context.Background(), signed(t, secret, map[string]any{"respCode": "4001"}))
 	if err != nil || n.Outcome != domain.PaymentFailed || n.ProviderCode != "4001" {
 		t.Fatalf("got %+v, %v", n, err)
 	}
 }
 
 func TestVerifyRejectsUntrustedBodies(t *testing.T) {
-	v := NewValidator(secret, merchantID)
+	v := NewVerifier(secret, merchantID)
 	good := signed(t, secret, nil)
 	var env envelope
 	_ = json.Unmarshal(good, &env)

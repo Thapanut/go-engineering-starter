@@ -5,7 +5,7 @@
 ### Added — 2C2P payment webhook (`docs/02-specs/2c2p-payment-webhook.md`)
 - `POST /webhooks/2c2p`: verifies the 2C2P PGW v4 notification (JWT HS256 = HMAC-SHA256, alg pinned, constant-time compare, merchant check) and transitions a payment `PENDING → SUCCESS | FAILED` atomically.
 - Idempotent redelivery: row lock + terminal-state rule + conditional update; duplicates return `DUPLICATE` without writing, and conflicting outcomes are ignored and logged for reconciliation.
-- Ports `WebhookUseCase`, `PaymentRepository`, `WebhookSignatureValidator`; adapters: GORM (`payments` table, model kept in the adapter), in-memory, and `twoc2p`.
+- Ports `WebhookUseCase`, `PaymentRepository`, `WebhookVerifier`; adapters: GORM (`payments` table, model kept in the adapter), in-memory, and `twoc2p`.
 - Migration `0001_payments`; env `TWOC2P_MERCHANT_ID`, `TWOC2P_SECRET_KEY`; `httpapi.PublicModule` for signature-authenticated routes.
 
 ### Added

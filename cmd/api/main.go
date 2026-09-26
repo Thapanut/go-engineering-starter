@@ -49,7 +49,7 @@ func run() error {
 	// Wire features: each service gets its outbound adapters; its HTTP module goes to
 	// NewApp (JWT-protected modules as arguments, signature-authenticated ones in Public).
 	webhooks := service.NewWebhookService(
-		twoc2p.NewValidator(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, log)
+		twoc2p.NewVerifier(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, log)
 
 	app := httpapi.NewApp(httpapi.Deps{
 		Auth:           auth.NewJWT(cfg.JWTSecret, cfg.JWTIssuer),

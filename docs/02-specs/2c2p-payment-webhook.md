@@ -14,7 +14,7 @@ Record the final outcome of a card/QR payment when 2C2P calls our backend URL. E
 
 ## 3. Design notes (from Architect)
 - 2C2P PGW v4 backend notification body: `{"payload":"<JWT>"}`; the JWT is signed **HS256 with the merchant Secret Key** ([2C2P docs](https://developer.2c2p.com/docs/api-payment-response-backend)).
-- The **signature validator is an outbound port** (`WebhookSignatureValidator`). Its 2C2P adapter verifies the HMAC with a constant-time compare and translates the provider payload into a provider-agnostic `domain.PaymentNotification`. The core never sees 2C2P field names.
+- The **webhook verifier is an outbound port** (`WebhookVerifier`). Its 2C2P adapter verifies the HMAC with a constant-time compare and translates the provider payload into a provider-agnostic `domain.PaymentNotification`. The core never sees 2C2P field names.
 - Transaction reference = `invoiceNo` (our payment reference sent to 2C2P). `tranRef` is stored as the provider reference.
 - `amount` arrives as a decimal (e.g. `"230.87"`). It is parsed from its string form to `int64` satang and **never via float**.
 - One DB transaction: `SELECT … FOR UPDATE` the payment by `invoice_no`, apply the domain transition, then a conditional `UPDATE … WHERE status = 'PENDING'`.
@@ -25,7 +25,7 @@ sequenceDiagram
   participant P as 2C2P
   participant H as HTTP adapter
   participant S as WebhookService
-  participant V as SignatureValidator (2C2P adapter)
+  participant V as WebhookVerifier (2C2P adapter)
   participant DB as payments (one tx)
   P->>H: POST /webhooks/2c2p {"payload": JWT}
   H->>S: HandlePaymentNotification(raw body)

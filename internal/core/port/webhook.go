@@ -19,10 +19,10 @@ type WebhookUseCase interface {
 	HandlePaymentNotification(ctx context.Context, rawBody []byte) (WebhookResult, error)
 }
 
-// WebhookSignatureValidator authenticates a raw provider webhook and decodes it
+// WebhookVerifier authenticates a raw provider webhook and decodes it
 // into a provider-agnostic notification (outbound port). It returns
 // domain.ErrInvalidSignature when the body cannot be trusted.
-type WebhookSignatureValidator interface {
+type WebhookVerifier interface {
 	Verify(ctx context.Context, rawBody []byte) (domain.PaymentNotification, error)
 }
 

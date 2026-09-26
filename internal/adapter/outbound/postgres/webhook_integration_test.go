@@ -49,7 +49,7 @@ func setupPayments(t *testing.T) (*service.WebhookService, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := service.NewWebhookService(twoc2p.NewValidator(itSecret, itMerchant), m, system.Clock{}, slog.Default())
+	svc := service.NewWebhookService(twoc2p.NewVerifier(itSecret, itMerchant), m, system.Clock{}, slog.Default())
 	return svc, db
 }
 

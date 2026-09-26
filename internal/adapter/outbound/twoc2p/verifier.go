@@ -1,4 +1,4 @@
-// Package twoc2p implements port.WebhookSignatureValidator for 2C2P PGW v4
+// Package twoc2p implements port.WebhookVerifier for 2C2P PGW v4
 // backend notifications.
 //
 // 2C2P POSTs {"payload":"<JWT>"} where the JWT is signed HS256 (HMAC-SHA256)
@@ -31,17 +31,17 @@ const respCodeSuccess = "0000"
 
 var b64 = base64.RawURLEncoding
 
-// Validator verifies 2C2P webhooks for one merchant.
-type Validator struct {
+// Verifier verifies 2C2P webhooks for one merchant.
+type Verifier struct {
 	secret     []byte
 	merchantID string
 }
 
-var _ port.WebhookSignatureValidator = (*Validator)(nil)
+var _ port.WebhookVerifier = (*Verifier)(nil)
 
-// NewValidator returns a validator for merchantID using its 2C2P Secret Key.
-func NewValidator(secret []byte, merchantID string) *Validator {
-	return &Validator{secret: secret, merchantID: merchantID}
+// NewVerifier returns a verifier for merchantID using its 2C2P Secret Key.
+func NewVerifier(secret []byte, merchantID string) *Verifier {
+	return &Verifier{secret: secret, merchantID: merchantID}
 }
 
 type envelope struct {
@@ -65,7 +65,7 @@ type claims struct {
 
 // Verify authenticates rawBody and returns the decoded notification.
 // Any authentication failure returns domain.ErrInvalidSignature (spec AC-05, AC-06).
-func (v *Validator) Verify(_ context.Context, rawBody []byte) (domain.PaymentNotification, error) {
+func (v *Verifier) Verify(_ context.Context, rawBody []byte) (domain.PaymentNotification, error) {
 	var env envelope
 	if err := json.Unmarshal(rawBody, &env); err != nil || env.Payload == "" {
 		return domain.PaymentNotification{}, domain.ErrInvalidSignature
@@ -100,7 +100,7 @@ func (v *Validator) Verify(_ context.Context, rawBody []byte) (domain.PaymentNot
 }
 
 // verifyJWT checks an HS256 compact JWT and returns its decoded payload.
-func (v *Validator) verifyJWT(token string) ([]byte, error) {
+func (v *Verifier) verifyJWT(token string) ([]byte, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, domain.ErrInvalidSignature

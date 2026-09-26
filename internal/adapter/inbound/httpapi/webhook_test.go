@@ -37,7 +37,7 @@ func newWebhookEnv(t *testing.T) (*env, *memory.Store) {
 	}
 	e := &env{jwt: nil, logs: &syncBuffer{}}
 	log := slog.New(slog.NewJSONHandler(e.logs, nil))
-	svc := service.NewWebhookService(twoc2p.NewValidator(whSecret, whMerchant), st, system.Clock{}, log)
+	svc := service.NewWebhookService(twoc2p.NewVerifier(whSecret, whMerchant), st, system.Clock{}, log)
 	e.app = NewApp(Deps{Auth: rejectAll{}, Log: log, RequestTimeout: 5 * time.Second,
 		Public: []PublicModule{WebhookModule{UseCase: svc}}})
 	return e, st
@@ -83,12 +83,27 @@ func TestWebhookAC01_AC03_ProcessThenDuplicate(t *testing.T) {
 	if got := outcomeOf(t, postWebhook(t, e, body)); got != "PROCESSED" {
 		t.Fatalf("first delivery outcome = %s", got)
 	}
+	first := storedPayment(t, st)
 	if got := outcomeOf(t, postWebhook(t, e, body)); got != "DUPLICATE" {
 		t.Fatalf("second delivery outcome = %s", got)
 	}
-	if p, _ := st.Payment(whInvoice); p.Status != domain.PaymentSuccess || st.OutcomeWrites() != 1 {
-		t.Fatalf("payment = %+v, writes = %d", p, st.OutcomeWrites())
+	if p := storedPayment(t, st); p.Status != domain.PaymentSuccess || p != first {
+		t.Fatalf("payment changed on duplicate:\nbefore %+v\nafter  %+v", first, p)
 	}
+}
+
+func storedPayment(t *testing.T, st *memory.Store) domain.Payment {
+	t.Helper()
+	var p domain.Payment
+	err := st.WithinTx(context.Background(), func(ctx context.Context, r port.Repositories) error {
+		var err error
+		p, err = r.Payments.GetByInvoiceNoForUpdate(ctx, whInvoice)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func TestWebhookAC05_InvalidSignatureIs401(t *testing.T) {
@@ -96,7 +111,7 @@ func TestWebhookAC05_InvalidSignatureIs401(t *testing.T) {
 	forged := webhookBody(t, []byte("attacker-key-0123456789abcdef-xyz!!"), whInvoice, "230.87")
 	assertError(t, postWebhook(t, e, forged), http.StatusUnauthorized, "INVALID_SIGNATURE")
 	assertError(t, postWebhook(t, e, `{"payload":"not-a-jwt"}`), http.StatusUnauthorized, "INVALID_SIGNATURE")
-	if p, _ := st.Payment(whInvoice); p.Status != domain.PaymentPending {
+	if p := storedPayment(t, st); p.Status != domain.PaymentPending {
 		t.Fatalf("status = %s", p.Status)
 	}
 }

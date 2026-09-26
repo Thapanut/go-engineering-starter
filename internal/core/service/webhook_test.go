@@ -21,25 +21,43 @@ const invoice = "INV-0001"
 
 var validBody = []byte("signed-body")
 
-// stubValidator accepts only validBody and returns the configured notification.
-type stubValidator struct{ n domain.PaymentNotification }
+// stubVerifier accepts only validBody and returns the configured notification.
+type stubVerifier struct{ n domain.PaymentNotification }
 
-func (s *stubValidator) Verify(_ context.Context, raw []byte) (domain.PaymentNotification, error) {
+func (s *stubVerifier) Verify(_ context.Context, raw []byte) (domain.PaymentNotification, error) {
 	if !bytes.Equal(raw, validBody) {
 		return domain.PaymentNotification{}, domain.ErrInvalidSignature
 	}
 	return s.n, nil
 }
 
-// countingTx records how often the service opens a unit of work.
+// countingTx records how often the service opens a unit of work and how many
+// outcome updates succeed (UpdateOutcome is the last write, so success = commit).
 type countingTx struct {
 	port.TxManager
-	calls atomic.Int64
+	calls  atomic.Int64
+	writes atomic.Int64
 }
 
 func (c *countingTx) WithinTx(ctx context.Context, fn func(context.Context, port.Repositories) error) error {
 	c.calls.Add(1)
-	return c.TxManager.WithinTx(ctx, fn)
+	return c.TxManager.WithinTx(ctx, func(ctx context.Context, r port.Repositories) error {
+		r.Payments = countingPayments{PaymentRepository: r.Payments, writes: &c.writes}
+		return fn(ctx, r)
+	})
+}
+
+type countingPayments struct {
+	port.PaymentRepository
+	writes *atomic.Int64
+}
+
+func (c countingPayments) UpdateOutcome(ctx context.Context, p domain.Payment) error {
+	if err := c.PaymentRepository.UpdateOutcome(ctx, p); err != nil {
+		return err
+	}
+	c.writes.Add(1)
+	return nil
 }
 
 // steppingClock advances one second per call so a second write would be visible.
@@ -53,7 +71,7 @@ type fixture struct {
 	svc   *service.WebhookService
 	store *memory.Store
 	tx    *countingTx
-	val   *stubValidator
+	val   *stubVerifier
 	logs  *bytes.Buffer
 }
 
@@ -70,7 +88,7 @@ func newFixture(t *testing.T, outcome domain.PaymentStatus) *fixture {
 	f := &fixture{
 		store: st,
 		tx:    &countingTx{TxManager: st},
-		val: &stubValidator{n: domain.PaymentNotification{
+		val: &stubVerifier{n: domain.PaymentNotification{
 			InvoiceNo: invoice, ProviderRef: "2868821", Amount: amount, Outcome: outcome, ProviderCode: "0000",
 		}},
 		logs: &bytes.Buffer{},
@@ -81,9 +99,14 @@ func newFixture(t *testing.T, outcome domain.PaymentStatus) *fixture {
 
 func (f *fixture) payment(t *testing.T) domain.Payment {
 	t.Helper()
-	p, ok := f.store.Payment(invoice)
-	if !ok {
-		t.Fatal("payment missing")
+	var p domain.Payment
+	err := f.store.WithinTx(context.Background(), func(ctx context.Context, r port.Repositories) error {
+		var err error
+		p, err = r.Payments.GetByInvoiceNoForUpdate(ctx, invoice)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return p
 }
@@ -101,8 +124,8 @@ func TestAC01_ValidNotificationMarksPaymentSuccess(t *testing.T) {
 	if p.Status != domain.PaymentSuccess || p.ProviderRef != "2868821" || p.ProviderCode != "0000" || p.UpdatedAt.IsZero() {
 		t.Fatalf("payment = %+v", p)
 	}
-	if f.store.OutcomeWrites() != 1 {
-		t.Fatalf("writes = %d, want 1", f.store.OutcomeWrites())
+	if f.tx.writes.Load() != 1 {
+		t.Fatalf("writes = %d, want 1", f.tx.writes.Load())
 	}
 }
 
@@ -132,8 +155,8 @@ func TestAC03_DuplicateDeliveryIsAcknowledgedWithoutWriting(t *testing.T) {
 	if got := f.payment(t); got != first {
 		t.Fatalf("payment changed on duplicate:\nbefore %+v\nafter  %+v", first, got)
 	}
-	if f.store.OutcomeWrites() != 1 {
-		t.Fatalf("writes = %d, want 1 (side effects re-run)", f.store.OutcomeWrites())
+	if f.tx.writes.Load() != 1 {
+		t.Fatalf("writes = %d, want 1 (side effects re-run)", f.tx.writes.Load())
 	}
 }
 
@@ -149,7 +172,7 @@ func TestAC04_ConflictingOutcomeIsIgnoredAndLogged(t *testing.T) {
 	if err != nil || res.Outcome != domain.OutcomeConflictIgnored {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
-	if f.payment(t) != first || f.store.OutcomeWrites() != 1 {
+	if f.payment(t) != first || f.tx.writes.Load() != 1 {
 		t.Fatal("terminal payment was modified")
 	}
 	if !bytes.Contains(f.logs.Bytes(), []byte("needs reconciliation")) || bytes.Contains(f.logs.Bytes(), []byte(invoice)) {
@@ -185,7 +208,7 @@ func TestAC08_AmountMismatchIsRejectedWithoutWriting(t *testing.T) {
 	if _, err := f.svc.HandlePaymentNotification(context.Background(), validBody); !errors.Is(err, domain.ErrPaymentMismatch) {
 		t.Fatalf("err = %v, want ErrPaymentMismatch", err)
 	}
-	if p := f.payment(t); p.Status != domain.PaymentPending || f.store.OutcomeWrites() != 0 {
+	if p := f.payment(t); p.Status != domain.PaymentPending || f.tx.writes.Load() != 0 {
 		t.Fatalf("payment modified: %+v", p)
 	}
 }
@@ -221,7 +244,7 @@ func TestAC10_ConcurrentDeliveriesTransitionOnce(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if processed.Load() != 1 || duplicate.Load() != 19 || f.store.OutcomeWrites() != 1 {
-		t.Fatalf("processed=%d duplicate=%d writes=%d", processed.Load(), duplicate.Load(), f.store.OutcomeWrites())
+	if processed.Load() != 1 || duplicate.Load() != 19 || f.tx.writes.Load() != 1 {
+		t.Fatalf("processed=%d duplicate=%d writes=%d", processed.Load(), duplicate.Load(), f.tx.writes.Load())
 	}
 }
