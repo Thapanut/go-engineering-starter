@@ -48,15 +48,14 @@ type PaymentNotification struct {
 	ProviderCode string
 }
 
-// Validate checks that a decoded notification is complete (spec AC-09).
+// Validate checks that a decoded notification is complete (spec AC-09). The
+// amount format is the adapter's job; a wrong amount fails Payment.Apply.
 func (n PaymentNotification) Validate() error {
 	switch {
 	case n.InvoiceNo == "":
 		return Invalid("invoiceNo is required")
 	case n.ProviderRef == "":
 		return Invalid("tranRef is required")
-	case n.Amount.Amount < 0:
-		return Invalid("amount must not be negative")
 	case n.Amount.Currency == "":
 		return Invalid("currencyCode is required")
 	case n.Outcome != PaymentSuccess && n.Outcome != PaymentFailed:

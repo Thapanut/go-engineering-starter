@@ -63,7 +63,6 @@ func TestPaymentNotificationValidate(t *testing.T) {
 	for name, mutate := range map[string]func(*domain.PaymentNotification){
 		"no invoice":      func(n *domain.PaymentNotification) { n.InvoiceNo = "" },
 		"no provider ref": func(n *domain.PaymentNotification) { n.ProviderRef = "" },
-		"negative amount": func(n *domain.PaymentNotification) { n.Amount.Amount = -1 },
 		"no currency":     func(n *domain.PaymentNotification) { n.Amount.Currency = "" },
 		"pending outcome": func(n *domain.PaymentNotification) { n.Outcome = domain.PaymentPending },
 	} {
