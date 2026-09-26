@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "golang.go",
+    "github.copilot-chat",
+    "anthropic.claude-code",
+    "redhat.vscode-yaml",
+    "42crunch.vscode-openapi",
+    "bierner.markdown-mermaid",
+    "hediet.vscode-drawio"
+  ]
+}

@@ -1,0 +1,1 @@
+../../.agents/rules/10-security-compliance.md

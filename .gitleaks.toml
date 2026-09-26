@@ -1,0 +1,6 @@
+title = "gitleaks config"
+
+# Scan everything, including docs/ and contracts/ — people paste real tokens into docs too.
+# If a specific false positive appears, allowlist that exact line/regex, not whole folders.
+[extend]
+useDefault = true

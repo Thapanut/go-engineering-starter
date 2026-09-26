@@ -1,0 +1,31 @@
+openapi: 3.1.0
+info:
+  title: <Service name> API
+  version: 0.1.0
+  description: Contract is the source of truth. Changes require human approval.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: OK
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      required: [code, message, traceId]
+      properties:
+        code: { type: string, example: VALIDATION_ERROR }
+        message: { type: string }
+        traceId: { type: string }
