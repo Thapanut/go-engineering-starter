@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -212,7 +213,7 @@ func TestAC06_Unauthorized(t *testing.T) {
 	for name, tok := range map[string]string{
 		"no token": "", "garbage": "abc.def.ghi", "expired": expired,
 		"wrong issuer": wrongIssuer, "wrong secret": wrongSecret,
-		"alg none": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJjdXN0LWFsaWNlIiwiaXNzIjoidGVzdC1pc3N1ZXIiLCJleHAiOjk5OTk5OTk5OTl9.",
+		"alg none": unsignedToken(alice),
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, c := range []call{
@@ -224,6 +225,13 @@ func TestAC06_Unauthorized(t *testing.T) {
 			}
 		})
 	}
+}
+
+// unsignedToken builds an "alg":"none" JWT at runtime (no token literal in source).
+func unsignedToken(sub string) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"none","typ":"JWT"}`)) + "." +
+		enc([]byte(fmt.Sprintf(`{"sub":%q,"iss":%q,"exp":%d}`, sub, issuer, time.Now().Add(time.Hour).Unix()))) + "."
 }
 
 func TestAC07_OthersAccountIs404(t *testing.T) {

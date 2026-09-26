@@ -1,0 +1,3 @@
+# Synthetic unsigned alg=none JWT used as a negative auth test in an earlier commit
+# (now generated at runtime). Not a credential.
+9cefe25b6712e0d377dfef3a3e48c5e3cb2fc1c3:internal/adapter/inbound/httpapi/router_test.go:jwt:215
