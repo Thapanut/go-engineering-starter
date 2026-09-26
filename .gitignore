@@ -9,3 +9,4 @@ bin/
 coverage.out
 node_modules/
 .DS_Store
+.claude/settings.local.json

@@ -32,8 +32,15 @@ If these conflict: contracts > ADR > spec > architecture doc > your assumptions.
 
 ## 4. Tech defaults (override via ADR)
 
-- Go 1.23+, Gin/Fiber, PostgreSQL, Kafka, Redis; Angular frontend
-- Layers: `handler → service → repository`; no DB access from handlers
+- Go 1.25+ (toolchain pinned in `go.mod`), Gin, PostgreSQL (pgx), Kafka, Redis; Angular frontend
+- **Hexagonal architecture (ADR-0002)** — dependencies point inward only:
+  - `internal/core/domain` entities, value objects, errors — stdlib only
+  - `internal/core/port` inbound (use-case) and outbound (repository, tx, clock, id) interfaces
+  - `internal/core/service` use cases; depend on ports only
+  - `internal/adapter/inbound/*` (HTTP) → call inbound ports; `internal/adapter/outbound/*` (postgres, memory) → implement outbound ports
+  - `cmd/<app>` is the only composition root; `internal/platform/*` holds config/logging/auth
+  - Enforced by `depguard` in `.golangci.yml`; a violation fails `make lint`
+- Money: `int64` minor units (`domain.Money`); never float
 - Config via env vars; no hard-coded URLs, credentials, or tenant data
 - Errors: wrap with context, map to contract error codes; never leak internals to clients
 - Logging: structured JSON, include `trace_id`; **never** log PII, tokens, card/account numbers
@@ -43,7 +50,10 @@ If these conflict: contracts > ADR > spec > architecture doc > your assumptions.
 | Purpose | Command |
 |---|---|
 | Full verification gate | `make verify` |
-| Unit tests | `make test` |
+| Unit tests (no DB) | `make test` |
+| Integration tests (PostgreSQL in Docker) | `make test-integration` |
+| Run locally | `make run` (Postgres) / `make run-memory` |
+| Dev JWT | `make token SUB=demo-customer` |
 | Lint | `make lint` |
 | Security scans | `make sec` |
 | Contract lint | `make contract-check` |

@@ -16,10 +16,33 @@ flowchart LR
 | Container | Responsibility | Tech | Owner |
 |---|---|---|---|
 
-## 3. Key flows
+## 3. Code structure — hexagonal (ADR-0002)
+```mermaid
+flowchart LR
+  subgraph inbound[Inbound adapters]
+    http[HTTP / Gin<br/>modules, DTOs, middleware]
+  end
+  subgraph core[Core — no framework imports]
+    inport([inbound ports<br/>use cases])
+    svc[services]
+    dom[domain]
+    outport([outbound ports<br/>TxManager, repositories,<br/>Clock, IDGenerator])
+  end
+  subgraph outbound[Outbound adapters]
+    pg[(postgres)]
+    mem[(memory)]
+  end
+  http --> inport --> svc --> dom
+  svc --> outport
+  pg -. implements .-> outport
+  mem -. implements .-> outport
+```
+Dependencies always point **inward**. `cmd/api/main.go` is the only place that knows every concrete type.
+
+## 4. Key flows
 <Sequence diagrams for the 2–3 riskiest flows.>
 
-## 4. Non-functional requirements
+## 5. Non-functional requirements
 | NFR | Target |
 |---|---|
 | Availability | 99.9% |
@@ -27,9 +50,10 @@ flowchart LR
 | RPO / RTO | |
 | Security | AuthN/Z, encryption in transit & at rest, audit log |
 
-## 5. Decisions
+## 6. Decisions
 - [ADR-0001 Record architecture decisions](adr/0001-record-architecture-decisions.md)
+- [ADR-0002 Hexagonal architecture (ports & adapters)](adr/0002-hexagonal-architecture.md)
 
-## 6. Risks & mitigations
+## 7. Risks & mitigations
 | Risk | Impact | Mitigation |
 |---|---|---|

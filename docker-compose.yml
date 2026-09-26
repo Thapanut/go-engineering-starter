@@ -1,0 +1,19 @@
+# Local development only. Credentials here are throwaway dev values.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: dev_only_password
+      POSTGRES_DB: app
+    ports:
+      - "${DB_PORT:-55432}:5432"
+    volumes:
+      # Runs once on first start, in filename order. Mount each new migration's
+      # .up.sql here (or run golang-migrate) and any synthetic dev seed after it.
+      - ./migrations/dev/00_create_test_db.sql:/docker-entrypoint-initdb.d/00_create_test_db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d app"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

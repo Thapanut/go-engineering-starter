@@ -2,30 +2,134 @@ openapi: 3.1.0
 info:
   title: <Service name> API
   version: 0.1.0
-  description: Contract is the source of truth. Changes require human approval.
+  description: |
+    Contract is the source of truth. Changes require human approval.
+    Money amounts are integers in minor units (e.g. satang for THB). Never floats.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
 servers:
   - url: http://localhost:8080
 security:
   - bearerAuth: []
+tags:
+  - name: health
+    description: Liveness and readiness probes for the platform
 paths:
   /healthz:
     get:
       operationId: getHealth
+      summary: Liveness probe
+      tags: [health]
       security: []
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, example: ok }
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Readiness probe (dependencies reachable)
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, example: ready }
+        "503": { $ref: "#/components/responses/NotReady" }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  headers:
+    TraceId:
+      description: Correlation id; echoes the request's X-Trace-Id or a generated one
+      schema: { type: string }
+  responses:
+    # Shared error responses for /v1 operations.
+    BadRequest:
+      description: "VALIDATION_ERROR"
+      headers:
+        X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: "UNAUTHORIZED"
+      headers:
+        X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: "NOT_FOUND (also returned for resources the caller does not own)"
+      headers:
+        X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: "CONFLICT"
+      headers:
+        X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InternalError:
+      description: "INTERNAL_ERROR (no internal details are exposed)"
+      headers:
+        X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotReady:
+      description: "NOT_READY"
+      headers:
+        X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    Money:
+      type: object
+      required: [amount, currency]
+      additionalProperties: false
+      properties:
+        amount:
+          type: integer
+          format: int64
+          description: Minor units. 150000 = 1,500.00 THB
+          example: 150000
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          example: THB
     Error:
       type: object
       required: [code, message, traceId]
       properties:
-        code: { type: string, example: VALIDATION_ERROR }
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - UNAUTHORIZED
+            - NOT_FOUND
+            - CONFLICT
+            - INTERNAL_ERROR
+            - NOT_READY
         message: { type: string }
         traceId: { type: string }

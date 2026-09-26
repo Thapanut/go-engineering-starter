@@ -1,9 +1,64 @@
-# Go Engineering Starter (AI-First)
+# Go Engineering Starter
 
-Starter สำหรับเริ่มโปรเจกต์ใหม่ โดยใช้ flow **คน design → AI implement → คน verify**
+Base project สำหรับ Go service แบบ **Hexagonal (Ports & Adapters)** พร้อม flow **คน design → AI implement → คน verify**
 ใช้ได้ทั้ง **Antigravity** (อ่าน `.agents/` ตรง ๆ) และ **VS Code** (Copilot / Claude Code)
 
-## โครงสร้าง
+## สถาปัตยกรรม — [ADR-0002](docs/01-architecture/adr/0002-hexagonal-architecture.md)
+```
+cmd/api/                         composition root: อ่าน config, เลือก adapter, wire เข้า core
+cmd/devtoken/                    ออก JWT สำหรับ dev
+internal/
+  core/                          business rule ทั้งหมด — ไม่ import framework/DB/adapter
+    domain/                        entity, value object (Money = int64 minor units), domain errors
+    port/                          inbound (use case) และ outbound (TxManager, repositories, Clock, IDGenerator)
+    service/                       implementation ของ use case
+  adapter/
+    inbound/httpapi/               Gin: Module ต่อ feature, middleware (auth, trace id, timeout, body limit, recovery),
+                                   strict JSON decode, domain error → contract error code
+    outbound/postgres/             pgx TxManager (READ COMMITTED, rollback อัตโนมัติ)
+    outbound/memory/               in-memory store (unit test / รันแบบไม่ต้องมี DB)
+    outbound/system/               clock, UUID
+  platform/                      config (env), logger (slog JSON), auth (JWT)
+migrations/                      SQL (golang-migrate naming)
+contracts/openapi.yaml           API truth
+```
+- dependency ชี้เข้าข้างในเท่านั้น: `adapter → port ← service → domain`
+- ขอบเขตบังคับด้วย `depguard` ใน `.golangci.yml`: ถ้า `core` import Gin, pgx, net/http, database/sql, `platform` หรือ `adapter` → `make lint` fail
+- เปลี่ยน DB หรือเพิ่ม gRPC/Kafka consumer = เพิ่ม adapter ใหม่ ไม่ต้องแตะ core
+
+## เพิ่ม feature ใหม่
+1. `domain/` — entity, value object, error ของ feature
+2. `port/<feature>.go` — inbound interface (use case) และ outbound repository interface; เพิ่ม field ใน `port.Repositories`
+3. `service/` — implement use case ด้วย `TxManager.WithinTx` + unit test กับ memory adapter
+4. `adapter/outbound/postgres` + `memory` — implement repository; migration ใหม่ใน `migrations/`
+5. `adapter/inbound/httpapi` — handler type ที่ implement `Module` แล้ว map error ใน `errors.go`
+6. `cmd/api/main.go` — wire service + ส่ง module เข้า `NewRouter`
+7. อัปเดต `contracts/openapi.yaml` ก่อน/พร้อมโค้ด แล้ว `make verify`
+
+## รันบนเครื่อง
+```bash
+cp .env.example .env
+make run            # PostgreSQL ใน Docker (port 55432) + API ที่ :8080
+make run-memory     # หรือรันแบบไม่ต้องมี Docker
+curl -s localhost:8080/healthz
+curl -s localhost:8080/readyz
+TOKEN=$(make -s token)     # JWT สำหรับเรียก /v1/*
+```
+
+## เริ่มโปรเจกต์ใหม่จาก template
+```bash
+gh repo create <new-project> --template Thapanut/go-engineering-starter --private --clone
+cd <new-project>
+go mod edit -module github.com/<org>/<new-project>
+grep -rl 'github.com/Thapanut/go-engineering-starter' --include='*.go' --include='.golangci.yml' . | xargs sed -i '' 's#github.com/Thapanut/go-engineering-starter#github.com/<org>/<new-project>#g'
+make tools            # golangci-lint, gosec, govulncheck, redocly (+ brew install gitleaks)
+make verify           # ต้องขึ้น RESULT: PASS — gate ที่ไม่ได้รันจะขึ้น INCOMPLETE
+```
+
+## Quality gates (`make verify`, รันใน CI ทุก PR)
+build · unit test (race) · integration test (PostgreSQL) · golangci-lint (+depguard) · gosec · govulncheck · gitleaks · OpenAPI lint
+
+## AI tooling
 ```
 AGENTS.md                      ← คู่มือกลางของ AI ทุกตัว (roles, rules, commands)
 CLAUDE.md, .github/copilot-instructions.md  ← ชี้กลับมา AGENTS.md
@@ -12,21 +67,11 @@ CLAUDE.md, .github/copilot-instructions.md  ← ชี้กลับมา AGEN
   rules/      always-on: roles, security (banking/PDPA), engineering standards
   skills/     /design → /spec → /implement → /verify  (+ write-adr, threat-model)
 docs/
-  00-business/problem-statement.md   ← คุณเขียน: ปัญหา, metric, constraint
-  01-architecture/architecture.md    ← คุณออกแบบ (AI ร่างได้ คุณ approve)
+  00-business/problem-statement.md   ← ปัญหา, metric, constraint
+  01-architecture/architecture.md    ← ออกแบบ (AI ร่างได้ คน approve)
   01-architecture/adr/               ← เหตุผลของทุก decision
-  02-specs/                          ← spec + acceptance criteria (สัญญาระหว่างคุณกับ AI)
-  03-verification/verification-log.md ← หลักฐานว่าคุณ verify แล้ว
-contracts/openapi.yaml               ← API truth; AI ห้ามแก้เองถ้าไม่ได้รับอนุญาต
-Makefile                             ← make verify = gate เดียวก่อนบอกว่าเสร็จ
-```
-
-## เริ่มใช้งาน
-```bash
-gh repo create <new-project> --template Thapanut/go-engineering-starter --private --clone
-cd <new-project> && go mod init <module>
-make tools            # ติดตั้ง golangci-lint, gosec, govulncheck, redocly (+ brew install gitleaks)
-make verify           # ต้องขึ้น RESULT: PASS — ถ้ามี gate ที่ไม่ได้รันจะขึ้น INCOMPLETE
+  02-specs/                          ← spec + acceptance criteria
+  03-verification/verification-log.md ← หลักฐานการ verify
 ```
 
 **Antigravity:** เปิดโฟลเดอร์ได้เลย ระบบอ่าน `AGENTS.md`, `.agents/rules/` และ `.agents/skills/` ให้เอง
@@ -42,15 +87,9 @@ make verify           # ต้องขึ้น RESULT: PASS — ถ้าม�
 ## Flow การทำงาน 1 feature
 | ขั้น | ใครทำ | คำสั่ง | Output |
 |---|---|---|---|
-| 1. เข้าใจปัญหา | คุณ | เขียน problem-statement | metric + constraint |
-| 2. ออกแบบ | คุณตัดสินใจ, AI เสนอ option | `/design` | ADR + architecture + contract diff |
-| 3. แตก spec | AI ร่าง, คุณ approve | `/spec` | `docs/02-specs/x.md` status APPROVED |
+| 1. เข้าใจปัญหา | คน | เขียน problem-statement | metric + constraint |
+| 2. ออกแบบ | คนตัดสินใจ, AI เสนอ option | `/design` | ADR + architecture + contract diff |
+| 3. แตก spec | AI ร่าง, คน approve | `/spec` | `docs/02-specs/x.md` status APPROVED |
 | 4. Implement | AI | `/implement` | code + test ต่อ AC |
-| 5. Verify | AI รัน gate, **คุณ review** | `/verify` | Verification Report + log |
-| 6. Merge | คุณ | PR | human sign-off |
-
-## หลักที่ใช้ตอบกรรมการ
-- **Design & accountability อยู่ที่คน**: ADR, contract, spec เป็นของคุณ ส่วน AI เป็นผู้ลงมือทำ
-- **Verify ด้วยหลักฐาน ไม่ใช่ความรู้สึก**: AC แต่ละข้อต้องมี test และต้องผ่าน gate ครบ (test/lint/gosec/govulncheck/gitleaks/contract)
-- **Guardrail สำหรับธนาคาร**: ไม่ใช้ข้อมูลลูกค้าจริง, ใช้ idempotency + audit log, ไม่ใช้ float กับเงิน, deny by default
-- **Reproducible**: prompt/rule/spec อยู่ใน git ทำให้ตรวจย้อนได้ว่า AI ได้รับคำสั่งอะไร
+| 5. Verify | AI รัน gate, **คน review** | `/verify` | Verification Report + log |
+| 6. Merge | คน | PR | human sign-off |
