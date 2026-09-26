@@ -1,0 +1,52 @@
+version: "2"
+
+linters:
+  enable:
+    - depguard     # enforces hexagonal dependency rules (ADR-0002)
+    - gosec
+    - errorlint
+    - bodyclose
+    - noctx
+    - sqlclosecheck
+    - rowserrcheck
+    - misspell
+    - revive
+  settings:
+    depguard:
+      rules:
+        core-is-framework-free:
+          files:
+            - "**/internal/core/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/adapter
+              desc: "core must not depend on adapters (ADR-0002)"
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/platform
+              desc: "core must not depend on platform infrastructure (ADR-0002)"
+            - pkg: github.com/gin-gonic/gin
+              desc: "HTTP framework belongs in adapter/inbound (ADR-0002)"
+            - pkg: github.com/jackc/pgx
+              desc: "database driver belongs in adapter/outbound (ADR-0002)"
+            - pkg: database/sql
+              desc: "database access belongs in adapter/outbound (ADR-0002)"
+            - pkg: net/http
+              desc: "transport belongs in adapter/inbound (ADR-0002)"
+        adapters-do-not-cross:
+          files:
+            - "**/internal/adapter/inbound/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/adapter/outbound
+              desc: "inbound adapters talk to the core through ports, never to outbound adapters"
+    revive:
+      rules:
+        - name: exported
+          arguments: [disableStutteringCheck]
+  exclusions:
+    presets: [std-error-handling]
+
+formatters:
+  enable: [gofmt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/Thapanut/go-engineering-starter]

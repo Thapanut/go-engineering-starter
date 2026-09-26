@@ -5,7 +5,7 @@
 set -u
 SUMMARY=""; FAIL=0; SKIP=0
 
-add() { SUMMARY="${SUMMARY}$(printf '%-10s %s' "$1" "$2")"$'\n'; }
+add() { SUMMARY="${SUMMARY}$(printf '%-12s %s' "$1" "$2")"$'\n'; }
 skip() { add "$1" "NOT RUN ($2)"; SKIP=1; }
 run() {
   local name="$1"; shift
@@ -17,6 +17,11 @@ run() {
 if [ -f go.mod ]; then
   run build   go build ./...
   run test    go test -race -cover ./...
+  if [ -n "${TEST_DB_DSN:-}" ]; then
+    run integration go test -race -count=1 -tags=integration ./...
+  else
+    skip integration "TEST_DB_DSN not set — start Docker, then: make verify"
+  fi
   run lint    golangci-lint run
   run gosec   gosec -quiet ./...
   run vulns   govulncheck ./...
