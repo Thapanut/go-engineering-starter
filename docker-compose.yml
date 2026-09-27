@@ -19,3 +19,16 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
+
+  # Single-node Kafka (KRaft) for the outbox relay: KAFKA_BROKERS=localhost:9092.
+  # The image's default config advertises localhost:9092, so keep the host port at 9092.
+  # Not started by `make verify`; use `make kafka-up` (also creates the topics).
+  kafka:
+    image: apache/kafka:3.9.0
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 3s
+      timeout: 10s
+      retries: 30

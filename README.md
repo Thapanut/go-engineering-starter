@@ -45,6 +45,17 @@ curl -s localhost:8080/readyz
 TOKEN=$(make -s token)     # JWT สำหรับเรียก /v1/*
 ```
 
+ทดสอบ webhook → outbox → Kafka แบบ end-to-end (ต้องมี `curl` และ `openssl`):
+```bash
+make kafka-up                             # Kafka ใน Docker + สร้าง topic
+make run KAFKA_BROKERS=localhost:9092     # terminal 1 (หรือใส่ KAFKA_BROKERS ใน .env)
+make kafka-consume                        # terminal 2: ดู event ที่ถูก publish
+make webhook-demo                         # terminal 3: สร้าง payment PENDING + ส่ง webhook ที่เซ็นแล้ว → PROCESSED
+make webhook-demo                         # ส่งซ้ำ → DUPLICATE, ไม่มี event ใหม่
+make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001   # payment ใหม่ → FAILED
+```
+ถ้า DB ถูกสร้างไว้ก่อนมี `migrations/0002_outbox` ให้ `make db-reset` ก่อน (ลบข้อมูล dev)
+
 ## เริ่มโปรเจกต์ใหม่จาก template
 ```bash
 gh repo create <new-project> --template Thapanut/go-engineering-starter --private --clone

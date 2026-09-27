@@ -1,4 +1,4 @@
-.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset docker-build
+.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset kafka-up kafka-down kafka-consume webhook-demo docker-build
 
 # Local dev defaults; override via environment or .env (never commit .env).
 -include .env
@@ -44,6 +44,21 @@ db-down: ## Stop PostgreSQL
 
 db-reset: ## Destroy and recreate the database
 	docker compose down -v && docker compose up -d --wait db
+
+kafka-up: ## Start local Kafka and create the topics (then set KAFKA_BROKERS=localhost:9092)
+	docker compose up -d --wait kafka
+	docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+		--create --if-not-exists --topic payments.v1.status-changed --partitions 3
+
+kafka-down: ## Stop local Kafka (keeps its data; `docker compose rm -sf kafka` to wipe)
+	docker compose stop kafka
+
+kafka-consume: ## Tail payment events from the beginning (Ctrl+C to stop)
+	docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+		--topic payments.v1.status-changed --from-beginning --property print.key=true --property print.headers=true
+
+webhook-demo: ## Seed a PENDING payment and send it a signed 2C2P webhook: make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001
+	@bash scripts/dev-2c2p-webhook.sh
 
 docker-build: ## Build the production image
 	docker build -t go-engineering-starter:local .
