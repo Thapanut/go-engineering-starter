@@ -10,7 +10,7 @@ Record the final outcome of a card/QR payment when 2C2P calls our backend URL. E
 
 ## 2. Scope
 - In: `POST /webhooks/2c2p`, HMAC-SHA256 (JWT HS256) verification, `PENDING → SUCCESS | FAILED` transition, idempotent duplicate handling, PostgreSQL (GORM) and in-memory adapters.
-- **Out of scope:** creating payments (payment-token request), refunds, reconciliation job, downstream notifications/events (future: transactional outbox), 2C2P inquiry API.
+- **Out of scope:** creating payments (payment-token request), refunds, reconciliation job, downstream notifications/events (see [payment-events-outbox](payment-events-outbox.md)), 2C2P inquiry API.
 
 ## 3. Design notes (from Architect)
 - 2C2P PGW v4 backend notification body: `{"payload":"<JWT>"}`; the JWT is signed **HS256 with the merchant Secret Key** ([2C2P docs](https://developer.2c2p.com/docs/api-payment-response-backend)).
@@ -61,7 +61,7 @@ sequenceDiagram
 | AC-11 | Any | A webhook request is logged | The log has the route template and trace id; no payload, card number, or invoice number |
 
 ## 6. Non-functional
-- Performance: one indexed row lock + one update; p95 < 300 ms. Downstream work must be async (outbox, future).
+- Performance: one indexed row lock + one update; p95 < 300 ms. Downstream work must be async (outbox, see payment-events-outbox).
 - Security / PII: the secret key comes only from env (`TWOC2P_SECRET_KEY`); constant-time HMAC compare; `cardNo` (masked by 2C2P) is **not** stored; body ≤ 16 KiB.
 - Audit / observability: warn log on `CONFLICT_IGNORED` with trace id and payment id (not the invoice no).
 - Idempotency / consistency: row lock + conditional update + terminal-state rule (AC-03, AC-04, AC-10).

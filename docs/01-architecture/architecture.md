@@ -26,21 +26,24 @@ flowchart LR
     inport([inbound ports<br/>use cases])
     svc[services]
     dom[domain]
-    outport([outbound ports<br/>TxManager, repositories,<br/>Clock, IDGenerator])
+    outport([outbound ports<br/>TxManager, repositories, outbox,<br/>MessagePublisher, Clock, IDGenerator])
   end
   subgraph outbound[Outbound adapters]
     pg[(postgres / GORM)]
     mem[(memory)]
+    kafka{{kafka-go publisher}}
   end
   http --> inport --> svc --> dom
   svc --> outport
   pg -. implements .-> outport
   mem -. implements .-> outport
+  kafka -. implements .-> outport
 ```
 Dependencies always point **inward**. `cmd/api/main.go` is the only place that knows every concrete type.
 
 ## 4. Key flows
 - 2C2P payment webhook (idempotent state transition): see [spec §3](../02-specs/2c2p-payment-webhook.md#3-design-notes-from-architect).
+- Payment events to Kafka (transactional outbox + relay): see [spec §3](../02-specs/payment-events-outbox.md#3-design-notes-from-architect) and ADR-0004.
 
 ## 5. Non-functional requirements
 | NFR | Target |
@@ -54,6 +57,7 @@ Dependencies always point **inward**. `cmd/api/main.go` is the only place that k
 - [ADR-0001 Record architecture decisions](adr/0001-record-architecture-decisions.md)
 - [ADR-0002 Hexagonal architecture (ports & adapters)](adr/0002-hexagonal-architecture.md)
 - [ADR-0003 Fiber v2 for HTTP, GORM for PostgreSQL](adr/0003-fiber-and-gorm.md)
+- [ADR-0004 Transactional outbox to Kafka with segmentio/kafka-go](adr/0004-transactional-outbox-kafka.md) _(Proposed)_
 
 ## 7. Risks & mitigations
 | Risk | Impact | Mitigation |
