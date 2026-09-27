@@ -31,6 +31,8 @@ linters:
               desc: "ORM belongs in adapter/outbound (ADR-0002, ADR-0003)"
             - pkg: github.com/jackc/pgx
               desc: "database driver belongs in adapter/outbound (ADR-0002)"
+            - pkg: github.com/segmentio/kafka-go
+              desc: "message broker client belongs in adapter/outbound (ADR-0002, ADR-0004)"
             - pkg: database/sql
               desc: "database access belongs in adapter/outbound (ADR-0002)"
             - pkg: net/http

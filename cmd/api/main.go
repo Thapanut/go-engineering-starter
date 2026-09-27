@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/inbound/httpapi"
+	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/kafka"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/memory"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/postgres"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/system"
@@ -49,7 +50,18 @@ func run() error {
 	// Wire features: each service gets its outbound adapters; its HTTP module goes to
 	// NewApp (JWT-protected modules as arguments, signature-authenticated ones in Public).
 	webhooks := service.NewWebhookService(
-		twoc2p.NewVerifier(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, log)
+		twoc2p.NewVerifier(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, system.UUIDGenerator{}, log)
+
+	// The outbox relay runs until shutdown; it must stop before the store closes.
+	relayDone := make(chan struct{})
+	pub, closePub := newPublisher(cfg, log)
+	if pub != nil {
+		relay := service.NewOutboxRelay(st.tx, pub, system.Clock{}, log, outboxBatchSize)
+		go func() { defer close(relayDone); relay.Run(ctx, cfg.OutboxPollInterval) }()
+	} else {
+		close(relayDone)
+	}
+	defer func() { stop(); <-relayDone; closePub() }()
 
 	app := httpapi.NewApp(httpapi.Deps{
 		Auth:           auth.NewJWT(cfg.JWTSecret, cfg.JWTIssuer),
@@ -77,6 +89,29 @@ func run() error {
 		}
 	}
 	return nil
+}
+
+// outboxBatchSize bounds how many messages one relay transaction locks and publishes.
+const outboxBatchSize = 100
+
+// newPublisher selects where outbox messages go. Without KAFKA_BROKERS the Postgres
+// relay is disabled and events wait safely in the outbox until Kafka is configured.
+func newPublisher(cfg config.Config, log *slog.Logger) (port.MessagePublisher, func()) {
+	switch {
+	case len(cfg.KafkaBrokers) > 0:
+		p := kafka.NewPublisher(cfg.KafkaBrokers)
+		return p, func() {
+			if err := p.Close(); err != nil {
+				log.Warn("close kafka publisher", slog.String("error", err.Error()))
+			}
+		}
+	case cfg.Store == config.StoreMemory:
+		log.Warn("KAFKA_BROKERS not set; publishing events in-process only (STORE=memory)")
+		return &memory.Publisher{}, func() {}
+	default:
+		log.Warn("KAFKA_BROKERS not set; outbox relay disabled, events stay in the outbox")
+		return nil, func() {}
+	}
 }
 
 type store struct {

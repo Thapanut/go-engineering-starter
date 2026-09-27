@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,9 @@ type Config struct {
 	// 2C2P merchant credentials for webhook verification.
 	TwoC2PMerchantID string
 	TwoC2PSecretKey  []byte
+	// Kafka bootstrap brokers for the outbox relay; empty disables publishing to Kafka.
+	KafkaBrokers       []string
+	OutboxPollInterval time.Duration
 }
 
 // Load reads and validates configuration from the environment.
@@ -43,6 +47,8 @@ func Load() (Config, error) {
 
 		TwoC2PMerchantID: os.Getenv("TWOC2P_MERCHANT_ID"),
 		TwoC2PSecretKey:  []byte(os.Getenv("TWOC2P_SECRET_KEY")),
+
+		KafkaBrokers: splitList(os.Getenv("KAFKA_BROKERS")),
 	}
 	var errs []error
 	port, err := strconv.Atoi(getenv("APP_PORT", "8080"))
@@ -53,6 +59,10 @@ func Load() (Config, error) {
 	c.RequestTimeout, err = time.ParseDuration(getenv("REQUEST_TIMEOUT", "5s"))
 	if err != nil || c.RequestTimeout <= 0 {
 		errs = append(errs, errors.New("REQUEST_TIMEOUT must be a positive duration"))
+	}
+	c.OutboxPollInterval, err = time.ParseDuration(getenv("OUTBOX_POLL_INTERVAL", "1s"))
+	if err != nil || c.OutboxPollInterval <= 0 {
+		errs = append(errs, errors.New("OUTBOX_POLL_INTERVAL must be a positive duration"))
 	}
 	switch c.Store {
 	case StorePostgres:
@@ -76,6 +86,17 @@ func Load() (Config, error) {
 		errs = append(errs, errors.New("TWOC2P_SECRET_KEY must be at least 32 bytes"))
 	}
 	return c, errors.Join(errs...)
+}
+
+// splitList parses a comma-separated list, ignoring blanks.
+func splitList(v string) []string {
+	var out []string
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func getenv(key, def string) string {

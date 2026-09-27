@@ -10,6 +10,7 @@ package memory
 import (
 	"context"
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
@@ -19,10 +20,11 @@ import (
 type state struct {
 	payments  map[string]domain.Payment // id → payment
 	byInvoice map[string]string         // invoice no → id
+	outbox    []outboxEntry             // insertion order = oldest first
 }
 
 func (s state) clone() state {
-	return state{payments: maps.Clone(s.payments), byInvoice: maps.Clone(s.byInvoice)}
+	return state{payments: maps.Clone(s.payments), byInvoice: maps.Clone(s.byInvoice), outbox: slices.Clone(s.outbox)}
 }
 
 // Store implements port.TxManager; each tx gets repositories bound to its working copy.
@@ -46,7 +48,7 @@ func (s *Store) WithinTx(ctx context.Context, fn func(ctx context.Context, r por
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	work := s.st.clone()
-	if err := fn(ctx, port.Repositories{Payments: paymentRepo{st: &work}}); err != nil {
+	if err := fn(ctx, port.Repositories{Payments: paymentRepo{st: &work}, Outbox: outboxRepo{st: &work}}); err != nil {
 		return err
 	}
 	s.st = work

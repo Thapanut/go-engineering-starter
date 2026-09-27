@@ -31,15 +31,7 @@ const itInvoice = "INV-IT-0001"
 func setupPayments(t *testing.T) (*service.WebhookService, *gorm.DB) {
 	t.Helper()
 	m, db := setup(t)
-	for _, f := range []string{"../../../../migrations/0001_payments.down.sql", "../../../../migrations/0001_payments.up.sql"} {
-		sql, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := db.Exec(string(sql)).Error; err != nil {
-			t.Fatalf("apply %s: %v", f, err)
-		}
-	}
+	applyMigrations(t, db)
 	err := m.WithinTx(context.Background(), func(ctx context.Context, r port.Repositories) error {
 		return r.Payments.Create(ctx, domain.Payment{
 			ID: "0e6a4f6e-6a1f-4f5e-9d6e-2b7f3c1a9d01", InvoiceNo: itInvoice,
@@ -49,8 +41,24 @@ func setupPayments(t *testing.T) (*service.WebhookService, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := service.NewWebhookService(twoc2p.NewVerifier(itSecret, itMerchant), m, system.Clock{}, slog.Default())
+	svc := service.NewWebhookService(twoc2p.NewVerifier(itSecret, itMerchant), m, system.Clock{}, system.UUIDGenerator{}, slog.Default())
 	return svc, db
+}
+
+// applyMigrations recreates the schema from migrations/ (down in reverse, then up).
+func applyMigrations(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for _, f := range []string{
+		"0002_outbox.down.sql", "0001_payments.down.sql", "0001_payments.up.sql", "0002_outbox.up.sql",
+	} {
+		sql, err := os.ReadFile("../../../../migrations/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Exec(string(sql)).Error; err != nil {
+			t.Fatalf("apply %s: %v", f, err)
+		}
+	}
 }
 
 func itBody(t *testing.T, respCode, amount string) []byte {

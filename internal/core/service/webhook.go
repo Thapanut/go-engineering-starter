@@ -15,19 +15,21 @@ type WebhookService struct {
 	verifier port.WebhookVerifier
 	tx       port.TxManager
 	clock    port.Clock
+	ids      port.IDGenerator
 	log      *slog.Logger
 }
 
 var _ port.WebhookUseCase = (*WebhookService)(nil)
 
 // NewWebhookService wires the service to its outbound ports.
-func NewWebhookService(v port.WebhookVerifier, tx port.TxManager, clock port.Clock, log *slog.Logger) *WebhookService {
-	return &WebhookService{verifier: v, tx: tx, clock: clock, log: log}
+func NewWebhookService(v port.WebhookVerifier, tx port.TxManager, clock port.Clock, ids port.IDGenerator, log *slog.Logger) *WebhookService {
+	return &WebhookService{verifier: v, tx: tx, clock: clock, ids: ids, log: log}
 }
 
 // HandlePaymentNotification verifies the webhook, then applies it to the payment
 // in one transaction. Duplicate deliveries return OutcomeDuplicate without any
-// write (spec AC-03, AC-10).
+// write (spec AC-03, AC-10). A transition also adds a payment.status-changed event
+// to the outbox in the same transaction (spec payment-events-outbox AC-01).
 func (s *WebhookService) HandlePaymentNotification(ctx context.Context, rawBody []byte) (port.WebhookResult, error) {
 	n, err := s.verifier.Verify(ctx, rawBody)
 	if err != nil {
@@ -53,6 +55,9 @@ func (s *WebhookService) HandlePaymentNotification(ctx context.Context, rawBody 
 		}
 		if err := r.Payments.UpdateOutcome(ctx, p); err != nil {
 			return fmt.Errorf("update payment outcome: %w", err)
+		}
+		if err := r.Outbox.AddPaymentStatusChanged(ctx, p.StatusChanged(s.ids.NewID())); err != nil {
+			return fmt.Errorf("add payment event to outbox: %w", err)
 		}
 		return nil
 	})

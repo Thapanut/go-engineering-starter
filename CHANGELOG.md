@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added — Payment events via transactional outbox (`docs/02-specs/payment-events-outbox.md`, ADR-0004)
+- `payment.status-changed` on Kafka topic `payments.v1.status-changed` (contract `contracts/asyncapi.yaml`), keyed by payment id, written to the `outbox` table in the same transaction as the payment transition.
+- `service.OutboxRelay`: claims unpublished rows with `FOR UPDATE SKIP LOCKED`, publishes (acks=all), marks them published; at-least-once, consumers deduplicate on `event_id`. Runs as a goroutine in `cmd/api`.
+- Ports `OutboxRepository` (in `port.Repositories`) and `MessagePublisher`; adapters: Postgres (GORM), memory (plus in-process `memory.Publisher`), and `kafka` (segmentio/kafka-go, MIT).
+- Migration `0002_outbox`; env `KAFKA_BROKERS`, `OUTBOX_POLL_INTERVAL`; depguard forbids `kafka-go` in the core.
+- `service.NewWebhookService` now takes a `port.IDGenerator` (event ids).
+
 ### Added — 2C2P payment webhook (`docs/02-specs/2c2p-payment-webhook.md`)
 - `POST /webhooks/2c2p`: verifies the 2C2P PGW v4 notification (JWT HS256 = HMAC-SHA256, alg pinned, constant-time compare, merchant check) and transitions a payment `PENDING → SUCCESS | FAILED` atomically.
 - Idempotent redelivery: row lock + terminal-state rule + conditional update; duplicates return `DUPLICATE` without writing, and conflicting outcomes are ignored and logged for reconciliation.

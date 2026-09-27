@@ -95,7 +95,7 @@ func (m *TxManager) WithinTx(ctx context.Context, fn func(ctx context.Context, r
 
 // newRepositories binds every repository to tx. Add one line per repository port.
 func newRepositories(tx *gorm.DB) port.Repositories {
-	return port.Repositories{Payments: paymentRepo{db: tx}}
+	return port.Repositories{Payments: paymentRepo{db: tx}, Outbox: outboxRepo{db: tx}}
 }
 
 func (m *TxManager) inTx(ctx context.Context, fn func(tx *gorm.DB) error) error {

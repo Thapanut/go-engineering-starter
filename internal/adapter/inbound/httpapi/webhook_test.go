@@ -37,7 +37,7 @@ func newWebhookEnv(t *testing.T) (*env, *memory.Store) {
 	}
 	e := &env{jwt: nil, logs: &syncBuffer{}}
 	log := slog.New(slog.NewJSONHandler(e.logs, nil))
-	svc := service.NewWebhookService(twoc2p.NewVerifier(whSecret, whMerchant), st, system.Clock{}, log)
+	svc := service.NewWebhookService(twoc2p.NewVerifier(whSecret, whMerchant), st, system.Clock{}, system.UUIDGenerator{}, log)
 	e.app = NewApp(Deps{Auth: rejectAll{}, Log: log, RequestTimeout: 5 * time.Second,
 		Public: []PublicModule{WebhookModule{UseCase: svc}}})
 	return e, st

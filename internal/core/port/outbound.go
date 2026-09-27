@@ -18,6 +18,7 @@ import (
 // in every outbound adapter (postgres, memory).
 type Repositories struct {
 	Payments PaymentRepository
+	Outbox   OutboxRepository
 }
 
 // TxManager runs fn in one atomic unit of work. If fn returns an error, nothing is persisted.

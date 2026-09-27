@@ -73,3 +73,16 @@ func TestPaymentNotificationValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestPaymentStatusChangedCarriesTheTransition(t *testing.T) {
+	now := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
+	p := pending()
+	if _, err := p.Apply(notification(domain.PaymentSuccess), now); err != nil {
+		t.Fatal(err)
+	}
+	want := domain.PaymentStatusChanged{EventID: "evt-1", PaymentID: "p1", InvoiceNo: "INV1",
+		Status: domain.PaymentSuccess, Amount: thb(23087), ProviderRef: "2868821", OccurredAt: now}
+	if got := p.StatusChanged("evt-1"); got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}

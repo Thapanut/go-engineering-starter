@@ -74,6 +74,31 @@ const (
 	OutcomeConflictIgnored WebhookOutcome = "CONFLICT_IGNORED"
 )
 
+// PaymentStatusChanged is raised when a payment reaches a final status. It is
+// published to other services through the transactional outbox.
+type PaymentStatusChanged struct {
+	EventID     string
+	PaymentID   string
+	InvoiceNo   string
+	Status      PaymentStatus
+	Amount      Money
+	ProviderRef string
+	OccurredAt  time.Time
+}
+
+// StatusChanged returns the event for the transition Apply just made.
+func (p Payment) StatusChanged(eventID string) PaymentStatusChanged {
+	return PaymentStatusChanged{
+		EventID:     eventID,
+		PaymentID:   p.ID,
+		InvoiceNo:   p.InvoiceNo,
+		Status:      p.Status,
+		Amount:      p.Amount,
+		ProviderRef: p.ProviderRef,
+		OccurredAt:  p.UpdatedAt,
+	}
+}
+
 // Apply transitions a PENDING payment according to n. Terminal payments never
 // change: a repeat of the same outcome is a duplicate, and a different outcome is
 // ignored for reconciliation (spec AC-01..AC-04, AC-08).

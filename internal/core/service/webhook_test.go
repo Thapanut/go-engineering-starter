@@ -3,7 +3,9 @@ package service_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -32,19 +34,52 @@ func (s *stubVerifier) Verify(_ context.Context, raw []byte) (domain.PaymentNoti
 }
 
 // countingTx records how often the service opens a unit of work and how many
-// outcome updates succeed (UpdateOutcome is the last write, so success = commit).
+// outcome updates succeed. With outboxErr set, adding an event fails.
 type countingTx struct {
 	port.TxManager
-	calls  atomic.Int64
-	writes atomic.Int64
+	calls     atomic.Int64
+	writes    atomic.Int64
+	outboxErr error
 }
 
 func (c *countingTx) WithinTx(ctx context.Context, fn func(context.Context, port.Repositories) error) error {
 	c.calls.Add(1)
 	return c.TxManager.WithinTx(ctx, func(ctx context.Context, r port.Repositories) error {
 		r.Payments = countingPayments{PaymentRepository: r.Payments, writes: &c.writes}
+		if c.outboxErr != nil {
+			r.Outbox = failingOutbox{OutboxRepository: r.Outbox, err: c.outboxErr}
+		}
 		return fn(ctx, r)
 	})
+}
+
+type failingOutbox struct {
+	port.OutboxRepository
+	err error
+}
+
+func (f failingOutbox) AddPaymentStatusChanged(context.Context, domain.PaymentStatusChanged) error {
+	return f.err
+}
+
+// seqIDs returns evt-1, evt-2, … so event ids are predictable.
+type seqIDs struct{ n atomic.Int64 }
+
+func (s *seqIDs) NewID() string { return fmt.Sprintf("evt-%d", s.n.Add(1)) }
+
+// pendingOutbox returns the unpublished outbox messages without changing them.
+func pendingOutbox(t *testing.T, st *memory.Store) []port.OutboxMessage {
+	t.Helper()
+	var msgs []port.OutboxMessage
+	err := st.WithinTx(context.Background(), func(ctx context.Context, r port.Repositories) error {
+		var err error
+		msgs, err = r.Outbox.ClaimPending(ctx, 1000)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return msgs
 }
 
 type countingPayments struct {
@@ -93,7 +128,7 @@ func newFixture(t *testing.T, outcome domain.PaymentStatus) *fixture {
 		}},
 		logs: &bytes.Buffer{},
 	}
-	f.svc = service.NewWebhookService(f.val, f.tx, &steppingClock{}, slog.New(slog.NewJSONHandler(f.logs, nil)))
+	f.svc = service.NewWebhookService(f.val, f.tx, &steppingClock{}, &seqIDs{}, slog.New(slog.NewJSONHandler(f.logs, nil)))
 	return f
 }
 
@@ -246,5 +281,99 @@ func TestAC10_ConcurrentDeliveriesTransitionOnce(t *testing.T) {
 	wg.Wait()
 	if processed.Load() != 1 || duplicate.Load() != 19 || f.tx.writes.Load() != 1 {
 		t.Fatalf("processed=%d duplicate=%d writes=%d", processed.Load(), duplicate.Load(), f.tx.writes.Load())
+	}
+}
+
+// Outbox (spec payment-events-outbox).
+
+func TestOutboxAC01_TransitionAddsEventInSameTransaction(t *testing.T) {
+	f := newFixture(t, domain.PaymentSuccess)
+	if _, err := f.svc.HandlePaymentNotification(context.Background(), validBody); err != nil {
+		t.Fatal(err)
+	}
+	msgs := pendingOutbox(t, f.store)
+	if len(msgs) != 1 {
+		t.Fatalf("outbox = %d messages, want 1", len(msgs))
+	}
+	m := msgs[0]
+	if m.ID != "evt-1" || m.Topic != "payments.v1.status-changed" || m.Key != "pay-1" {
+		t.Fatalf("message = %+v", m)
+	}
+	var ev struct {
+		Status      string `json:"status"`
+		Amount      int64  `json:"amount"`
+		Currency    string `json:"currency"`
+		ProviderRef string `json:"provider_ref"`
+		OccurredAt  string `json:"occurred_at"`
+	}
+	if err := json.Unmarshal(m.Payload, &ev); err != nil {
+		t.Fatal(err)
+	}
+	p := f.payment(t)
+	if ev.Status != "SUCCESS" || ev.Amount != 23087 || ev.Currency != "THB" || ev.ProviderRef != "2868821" ||
+		ev.OccurredAt != p.UpdatedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("payload = %s (payment %+v)", m.Payload, p)
+	}
+}
+
+func TestOutboxAC01_FailedOutcomeAlsoAddsEvent(t *testing.T) {
+	f := newFixture(t, domain.PaymentFailed)
+	if _, err := f.svc.HandlePaymentNotification(context.Background(), validBody); err != nil {
+		t.Fatal(err)
+	}
+	if msgs := pendingOutbox(t, f.store); len(msgs) != 1 || !bytes.Contains(msgs[0].Payload, []byte(`"status":"FAILED"`)) {
+		t.Fatalf("outbox = %+v", msgs)
+	}
+}
+
+func TestOutboxAC02_NoEventWithoutTransition(t *testing.T) {
+	f := newFixture(t, domain.PaymentSuccess)
+	ctx := context.Background()
+	if _, err := f.svc.HandlePaymentNotification(ctx, validBody); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.svc.HandlePaymentNotification(ctx, validBody) // DUPLICATE
+	f.val.n.Outcome = domain.PaymentFailed
+	_, _ = f.svc.HandlePaymentNotification(ctx, validBody) // CONFLICT_IGNORED
+	f.val.n.Amount.Amount = 1
+	_, _ = f.svc.HandlePaymentNotification(ctx, validBody) // PAYMENT_MISMATCH
+	_, _ = f.svc.HandlePaymentNotification(ctx, []byte("forged-body"))
+	if msgs := pendingOutbox(t, f.store); len(msgs) != 1 {
+		t.Fatalf("outbox = %d messages, want only the first transition", len(msgs))
+	}
+}
+
+func TestOutboxAC03_OutboxFailureRollsBackTheTransition(t *testing.T) {
+	f := newFixture(t, domain.PaymentSuccess)
+	boom := errors.New("outbox unavailable")
+	f.tx.outboxErr = boom
+	if _, err := f.svc.HandlePaymentNotification(context.Background(), validBody); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want %v", err, boom)
+	}
+	if p := f.payment(t); p.Status != domain.PaymentPending {
+		t.Fatalf("status = %s, want PENDING (no state change without its event)", p.Status)
+	}
+	f.tx.outboxErr = nil // 2C2P retries: the retry must process normally
+	if res, err := f.svc.HandlePaymentNotification(context.Background(), validBody); err != nil || res.Outcome != domain.OutcomeProcessed {
+		t.Fatalf("retry: res=%+v err=%v", res, err)
+	}
+	if msgs := pendingOutbox(t, f.store); len(msgs) != 1 {
+		t.Fatalf("outbox = %d messages, want 1", len(msgs))
+	}
+}
+
+func TestOutboxAC04_ConcurrentDeliveriesAddOneEvent(t *testing.T) {
+	f := newFixture(t, domain.PaymentSuccess)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = f.svc.HandlePaymentNotification(context.Background(), validBody)
+		}()
+	}
+	wg.Wait()
+	if msgs := pendingOutbox(t, f.store); len(msgs) != 1 {
+		t.Fatalf("outbox = %d messages, want 1", len(msgs))
 	}
 }
