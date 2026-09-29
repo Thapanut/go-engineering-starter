@@ -16,6 +16,12 @@ type OutboxMessage struct {
 	CreatedAt time.Time
 }
 
+// OutboxRecord is an outbox message and when the relay published it (zero: not yet).
+type OutboxRecord struct {
+	Message     OutboxMessage
+	PublishedAt time.Time
+}
+
 // OutboxRepository stores events in the same unit of work as the state change that
 // raised them (transactional outbox, ADR-0004) and hands them to the relay.
 type OutboxRepository interface {
@@ -27,6 +33,9 @@ type OutboxRepository interface {
 	ClaimPending(ctx context.Context, limit int) ([]OutboxMessage, error)
 	// MarkPublished records that the claimed messages were published.
 	MarkPublished(ctx context.Context, ids []string, at time.Time) error
+	// ListByKey returns every message with the given key (aggregate id), oldest
+	// first, published or not. For diagnostics; it is not indexed.
+	ListByKey(ctx context.Context, key string) ([]OutboxRecord, error)
 }
 
 // MessagePublisher delivers outbox messages to the message broker (outbound port).

@@ -55,7 +55,15 @@ make webhook-demo                         # terminal 3: สร้าง payment 
 make webhook-demo                         # ส่งซ้ำ → DUPLICATE, ไม่มี event ใหม่
 make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001   # payment ใหม่ → FAILED
 ```
-ถ้า DB ถูกสร้างไว้ก่อนมี `migrations/0002_outbox` ให้ `make db-reset` ก่อน (ลบข้อมูล dev)
+ถ้า DB ถูกสร้างไว้ก่อนมี `migrations/0002_outbox` หรือ `0003_payment_checkout` ให้ `make db-reset` ก่อน (ลบข้อมูล dev)
+
+หน้า demo checkout → webhook → polling ในเบราว์เซอร์ ([flow](docs/02-specs/frontend-integration-flow.md)):
+```bash
+make demo STORE=memory                    # ไม่ต้องใช้ Docker; เปิด URL ที่ print ออกมา (http://localhost:8080/demo#…)
+make demo                                 # หรือใช้ PostgreSQL; เพิ่ม KAFKA_BROKERS=localhost:9092 หลัง `make kafka-up`
+```
+เลือกสินค้า → **Checkout with 2C2P** (backend คิดราคาเอง) → หน้า mock 2C2P → **Simulate Successful/Failed Payment** → หน้า return ขึ้น *Verifying…* และ poll ทุก 2 วินาที ขณะที่ webhook (เซ็น HS256) ตามมาใน 3 วินาที → **Payment Successful! Order Confirmed**; กล่อง Live debug แสดง DB status, webhook ล่าสุด และ event ใน outbox/Kafka
+JWT และ 2C2P sandbox key ส่งไปใน URL fragment (ไม่ถูกส่งไป server); `/demo` เปิดเฉพาะเมื่อ `DEMO_UI_ENABLED=true`
 
 ## เริ่มโปรเจกต์ใหม่จาก template
 ```bash

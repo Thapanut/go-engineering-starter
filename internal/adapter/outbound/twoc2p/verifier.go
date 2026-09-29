@@ -16,8 +16,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -129,8 +127,6 @@ func (v *Verifier) verifyJWT(token string) ([]byte, error) {
 	return payload, nil
 }
 
-var decimalRe = regexp.MustCompile(`^(\d{1,15})(?:\.(\d{1,2}))?$`)
-
 // parseMinorUnits converts a decimal amount such as "230.87" or 230.87 into
 // minor units (23087) using string arithmetic only, never float.
 func parseMinorUnits(raw json.RawMessage) (int64, error) {
@@ -138,23 +134,7 @@ func parseMinorUnits(raw json.RawMessage) (int64, error) {
 	if unq, err := strconv.Unquote(s); err == nil {
 		s = unq
 	}
-	m := decimalRe.FindStringSubmatch(s)
-	if m == nil {
-		return 0, domain.Invalid("amount must be a non-negative decimal with at most 2 places")
-	}
-	whole, err := strconv.ParseInt(m[1], 10, 64)
-	if err != nil || whole > (math.MaxInt64-99)/100 {
-		return 0, domain.Invalid("amount out of range")
-	}
-	frac := int64(0)
-	if m[2] != "" {
-		f, _ := strconv.ParseInt(m[2], 10, 64) // regex guarantees 1-2 digits
-		if len(m[2]) == 1 {
-			f *= 10
-		}
-		frac = f
-	}
-	return whole*100 + frac, nil
+	return domain.ParseDecimal(s)
 }
 
 // Sign builds a 2C2P-style webhook body for payload using secret. It exists for

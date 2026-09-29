@@ -35,3 +35,25 @@ func TestMoneyString(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDecimal(t *testing.T) {
+	for in, want := range map[string]int64{"1000.00": 100000, "230.87": 23087, "230.8": 23080, "5": 500, "0.05": 5, "0": 0} {
+		if got, err := domain.ParseDecimal(in); err != nil || got != want {
+			t.Errorf("%q → %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "-1.00", "1.001", "1,000.00", "1e3", " 1.00", "1.", ".5", "1000000000000000"} {
+		if _, err := domain.ParseDecimal(in); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("%q: err = %v, want ErrValidation", in, err)
+		}
+	}
+}
+
+func TestMoneyDecimalRoundTrips(t *testing.T) {
+	for _, v := range []int64{100000, 23087, 5, 0} {
+		back, err := domain.ParseDecimal(thb(v).Decimal())
+		if err != nil || back != v {
+			t.Errorf("%d → %q → %d, %v", v, thb(v).Decimal(), back, err)
+		}
+	}
+}

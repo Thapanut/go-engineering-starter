@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added — Cart checkout and status polling (`docs/02-specs/payment-checkout.md`)
+- `GET /v1/products` (`listProducts`): sample catalog priced by the backend (`catalog.Sample`, port `ProductCatalog`).
+- `POST /v1/payments` (`createPayment`): takes `orderId` and `items` (no amount); `domain.PriceOrder` prices them; creates a PENDING payment owned by the JWT subject with a server-generated `invoiceNo`, then opens a payment session; returns the priced `lines`, `paymentToken`, and `checkoutUrl`.
+- `GET /v1/payments/{invoiceNo}/status` (`getPaymentStatus`): owner-only; another customer's payment is `NOT_FOUND`.
+- Ports `CheckoutUseCase`, `PaymentEventsUseCase`, `PaymentGateway`, `ProductCatalog`; `PaymentRepository.GetByInvoiceNo`; `OutboxRepository.ListByKey`; `twoc2p.StubGateway` (stands in for the 2C2P Payment Token API, `.invalid` checkout URLs).
+- Migration `0003_payment_checkout` (`payments.order_id`, `payments.customer_id`, backward compatible).
+- End-to-end demo at `GET /demo` and `/demo/return` (embedded static HTML, CSP, no secrets) behind `DEMO_UI_ENABLED` (default `false`): catalog and cart, mock 2C2P hosted page, frontend return page polling every 2 s, server-to-server webhook signed in the browser (WebCrypto HS256), webhook replay, and a live debug box (DB status, last webhook, outbox/Kafka event via `GET /v1/demo/payments/{invoiceNo}/events`). `make demo`; `devtoken -demo-url`.
+- Flow doc `docs/02-specs/frontend-integration-flow.md` (Mermaid sequence).
+- Money naming: `amount` is always the decimal string people read (`"1000.00"`); minor units are `amountMinor` (REST) / `amount_minor` (events). **Changed (unreleased):** `payment.status-changed.amount` is now the decimal string and `amount_minor` holds the integer. `domain.ParseDecimal` / `Money.Decimal` shared by REST, events, and the 2C2P verifier.
+
 ### Added — kafka-ui for local Kafka
 - `kafka-ui` (provectuslabs/kafka-ui) in docker-compose on http://localhost:8081 (`KAFKA_UI_PORT`); `make kafka-ui` starts Kafka and the UI and opens it; `make kafka-down` stops both.
 - Local Kafka gets a second listener, `kafka:29092` for containers, next to `localhost:9092` for the host.

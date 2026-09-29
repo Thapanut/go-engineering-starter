@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,5 +85,38 @@ func TestPaymentStatusChangedCarriesTheTransition(t *testing.T) {
 		Status: domain.PaymentSuccess, Amount: thb(23087), ProviderRef: "2868821", OccurredAt: now}
 	if got := p.StatusChanged("evt-1"); got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestNewPendingPayment(t *testing.T) {
+	now := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
+	p, err := domain.NewPendingPayment("p1", "INV1", "ORD-1_a", "cust-1", thb(100000), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := domain.Payment{ID: "p1", InvoiceNo: "INV1", OrderID: "ORD-1_a", CustomerID: "cust-1", Amount: thb(100000),
+		Status: domain.PaymentPending, CreatedAt: now, UpdatedAt: now}
+	if p != want {
+		t.Fatalf("got %+v, want %+v", p, want)
+	}
+}
+
+func TestNewPendingPaymentRejectsInvalidInput(t *testing.T) {
+	for name, tc := range map[string]struct {
+		orderID, customerID string
+		amount              domain.Money
+	}{
+		"no customer":        {"ORD-1", "", thb(1)},
+		"no order":           {"", "c", thb(1)},
+		"order too long":     {strings.Repeat("a", 65), "c", thb(1)},
+		"order bad chars":    {"ORD 1", "c", thb(1)},
+		"zero amount":        {"ORD-1", "c", thb(0)},
+		"negative amount":    {"ORD-1", "c", thb(-1)},
+		"lowercase currency": {"ORD-1", "c", domain.Money{Amount: 1, Currency: "thb"}},
+		"no currency":        {"ORD-1", "c", domain.Money{Amount: 1}},
+	} {
+		if _, err := domain.NewPendingPayment("p1", "INV1", tc.orderID, tc.customerID, tc.amount, time.Now()); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
 	}
 }

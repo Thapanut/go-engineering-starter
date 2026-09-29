@@ -3,6 +3,8 @@ package domain
 import (
 	"fmt"
 	"math"
+	"regexp"
+	"strconv"
 )
 
 // Currency is an ISO 4217 code.
@@ -39,12 +41,41 @@ func (m Money) Sub(o Money) (Money, error) {
 	return Money{Amount: m.Amount - o.Amount, Currency: m.Currency}, nil
 }
 
-// String formats m for humans, e.g. "1500.00 THB".
-func (m Money) String() string {
+// Decimal formats the amount in major units with two decimals, e.g. 100000 → "1000.00".
+func (m Money) Decimal() string {
 	sign := ""
 	a := m.Amount
 	if a < 0 {
 		sign, a = "-", -a
 	}
-	return fmt.Sprintf("%s%d.%02d %s", sign, a/100, a%100, m.Currency)
+	return fmt.Sprintf("%s%d.%02d", sign, a/100, a%100)
+}
+
+// String formats m for humans, e.g. "1500.00 THB".
+func (m Money) String() string { return m.Decimal() + " " + string(m.Currency) }
+
+var decimalRe = regexp.MustCompile(`^(\d{1,15})(?:\.(\d{1,2}))?$`)
+
+// ParseDecimal converts a non-negative decimal amount in major units, such as
+// "1000.00", "230.8", or "5", into minor units (100000, 23080, 500) with string
+// arithmetic only, never float. Every currency is assumed to have two decimal
+// places (UNCONFIRMED for zero-decimal currencies such as JPY).
+func ParseDecimal(s string) (int64, error) {
+	m := decimalRe.FindStringSubmatch(s)
+	if m == nil {
+		return 0, Invalid("amount must be a non-negative decimal with at most 2 places")
+	}
+	whole, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil || whole > (math.MaxInt64-99)/100 {
+		return 0, Invalid("amount out of range")
+	}
+	frac := int64(0)
+	if m[2] != "" {
+		f, _ := strconv.ParseInt(m[2], 10, 64) // regex guarantees 1-2 digits
+		if len(m[2]) == 1 {
+			f *= 10
+		}
+		frac = f
+	}
+	return whole*100 + frac, nil
 }

@@ -301,7 +301,8 @@ func TestOutboxAC01_TransitionAddsEventInSameTransaction(t *testing.T) {
 	}
 	var ev struct {
 		Status      string `json:"status"`
-		Amount      int64  `json:"amount"`
+		Amount      string `json:"amount"`
+		AmountMinor int64  `json:"amount_minor"`
 		Currency    string `json:"currency"`
 		ProviderRef string `json:"provider_ref"`
 		OccurredAt  string `json:"occurred_at"`
@@ -310,7 +311,7 @@ func TestOutboxAC01_TransitionAddsEventInSameTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := f.payment(t)
-	if ev.Status != "SUCCESS" || ev.Amount != 23087 || ev.Currency != "THB" || ev.ProviderRef != "2868821" ||
+	if ev.Status != "SUCCESS" || ev.Amount != "230.87" || ev.AmountMinor != 23087 || ev.Currency != "THB" || ev.ProviderRef != "2868821" ||
 		ev.OccurredAt != p.UpdatedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("payload = %s (payment %+v)", m.Payload, p)
 	}

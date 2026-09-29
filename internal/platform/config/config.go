@@ -34,6 +34,8 @@ type Config struct {
 	// Kafka bootstrap brokers for the outbox relay; empty disables publishing to Kafka.
 	KafkaBrokers       []string
 	OutboxPollInterval time.Duration
+	// DemoUI serves the local payment demo page at /demo. Never enable in production.
+	DemoUI bool
 }
 
 // Load reads and validates configuration from the environment.
@@ -59,6 +61,10 @@ func Load() (Config, error) {
 	c.RequestTimeout, err = time.ParseDuration(getenv("REQUEST_TIMEOUT", "5s"))
 	if err != nil || c.RequestTimeout <= 0 {
 		errs = append(errs, errors.New("REQUEST_TIMEOUT must be a positive duration"))
+	}
+	c.DemoUI, err = strconv.ParseBool(getenv("DEMO_UI_ENABLED", "false"))
+	if err != nil {
+		errs = append(errs, errors.New("DEMO_UI_ENABLED must be true or false"))
 	}
 	c.OutboxPollInterval, err = time.ParseDuration(getenv("OUTBOX_POLL_INTERVAL", "1s"))
 	if err != nil || c.OutboxPollInterval <= 0 {

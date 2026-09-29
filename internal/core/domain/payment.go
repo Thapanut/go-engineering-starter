@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"regexp"
 	"time"
 )
 
@@ -31,12 +32,38 @@ var (
 type Payment struct {
 	ID           string
 	InvoiceNo    string
+	OrderID      string // caller's order reference
+	CustomerID   string // owner; only this customer may read the payment
 	Amount       Money
 	Status       PaymentStatus
 	ProviderRef  string // provider's transaction reference (2C2P tranRef)
 	ProviderCode string // provider's raw response code, kept for disputes
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+var (
+	orderIDRe  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	currencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
+)
+
+// NewPendingPayment builds a payment that waits for the provider's outcome. It
+// validates the caller's input (spec payment-checkout AC-02).
+func NewPendingPayment(id, invoiceNo, orderID, customerID string, amount Money, now time.Time) (Payment, error) {
+	switch {
+	case customerID == "":
+		return Payment{}, Invalid("customer is required")
+	case !orderIDRe.MatchString(orderID):
+		return Payment{}, Invalid("orderId must be 1-64 letters, digits, '-' or '_'")
+	case amount.Amount <= 0:
+		return Payment{}, Invalid("amount must be positive")
+	case !currencyRe.MatchString(string(amount.Currency)):
+		return Payment{}, Invalid("currency must be a 3-letter ISO 4217 code")
+	}
+	return Payment{
+		ID: id, InvoiceNo: invoiceNo, OrderID: orderID, CustomerID: customerID,
+		Amount: amount, Status: PaymentPending, CreatedAt: now, UpdatedAt: now,
+	}, nil
 }
 
 // PaymentNotification is a verified, provider-agnostic payment outcome.

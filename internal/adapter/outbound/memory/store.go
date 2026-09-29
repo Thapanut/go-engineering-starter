@@ -66,7 +66,12 @@ func (r paymentRepo) Create(_ context.Context, p domain.Payment) error {
 	return nil
 }
 
-func (r paymentRepo) GetByInvoiceNoForUpdate(_ context.Context, invoiceNo string) (domain.Payment, error) {
+// GetByInvoiceNoForUpdate needs no lock: Store serializes transactions.
+func (r paymentRepo) GetByInvoiceNoForUpdate(ctx context.Context, invoiceNo string) (domain.Payment, error) {
+	return r.GetByInvoiceNo(ctx, invoiceNo)
+}
+
+func (r paymentRepo) GetByInvoiceNo(_ context.Context, invoiceNo string) (domain.Payment, error) {
 	id, ok := r.st.byInvoice[invoiceNo]
 	if !ok {
 		return domain.Payment{}, domain.ErrNotFound

@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>2C2P Checkout Demo</title>
+<!--
+  Local demo only (spec payment-checkout). Open it with the URL `make demo` prints:
+  the dev JWT and the 2C2P sandbox key arrive in the URL fragment, are kept in
+  sessionStorage, and the fragment is removed from the address bar.
+
+  Flow: catalog/cart → POST /v1/payments (items only; the backend prices them) →
+  mock 2C2P hosted payment page (modal) → two callbacks, as with the real gateway:
+    1. frontend return: the browser goes to /demo/return?invoiceNo=… and polls
+       GET /v1/payments/{invoiceNo}/status every 2 s (it never trusts the redirect);
+    2. server-to-server webhook: "2C2P" (this page) POSTs a JWT signed HS256 with the
+       merchant secret to /webhooks/2c2p a few seconds later.
+-->
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1c2230; --muted: #687085; --line: #e2e5eb; --soft: #f0f2f5;
+    --accent: #1f5fd6; --accent-text: #fff; --ok: #137a3f; --ok-bg: #e2f4e9; --bad: #b42318; --bad-bg: #fde8e6;
+    --wait: #8a5a00; --wait-bg: #fff3d4; --gw: #0b3b6f; --shadow: 0 20px 60px rgba(16, 24, 40, .25);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11141a; --card: #1a1e26; --text: #e6e9ef; --muted: #99a2b4; --line: #2b313c; --soft: #222833;
+      --accent: #5b8def; --accent-text: #0b1020; --ok: #5fd08f; --ok-bg: #15301e; --bad: #ff8a80; --bad-bg: #3a1a18;
+      --wait: #f2c14e; --wait-bg: #33290f; --gw: #8fb8ea; --shadow: 0 20px 60px rgba(0, 0, 0, .6);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 380px; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+  header { grid-column: 1 / -1; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .sub { color: var(--muted); margin: 2px 0 0; font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button.ghost { background: var(--soft); color: var(--text); border: 1px solid var(--line); }
+  button.ok { background: var(--ok); color: #fff; }
+  button.bad { background: var(--bad); color: #fff; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .alert { grid-column: 1 / -1; background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 12px 14px; display: none; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--soft); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+
+  /* Shop */
+  .products { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .product { border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .product .name { font-weight: 600; }
+  .product .price { color: var(--muted); }
+  .qty { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+  .qty button { padding: 4px 12px; }
+  .qty span { min-width: 24px; text-align: center; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { padding: 6px 0; text-align: left; border-bottom: 1px solid var(--line); }
+  td.num, th.num { text-align: right; }
+  tfoot td { font-weight: 700; border-bottom: 0; padding-top: 10px; }
+  .cart-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 12px; flex-wrap: wrap; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+  /* Return page */
+  .result { text-align: center; padding: 36px 18px; border-radius: 12px; }
+  .result.PENDING { background: var(--wait-bg); color: var(--wait); }
+  .result.SUCCESS { background: var(--ok-bg); color: var(--ok); }
+  .result.FAILED { background: var(--bad-bg); color: var(--bad); }
+  .result h3 { margin: 10px 0 4px; font-size: 24px; }
+  .result p { margin: 0; }
+  .big-icon { font-size: 40px; line-height: 1; }
+  .spin { width: 40px; height: 40px; border-radius: 50%; border: 4px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 16px 0 0; font-size: 14px; }
+  dl.facts dt { color: var(--muted); }
+  dl.facts dd { margin: 0; word-break: break-all; }
+
+  /* Debug box */
+  aside .row { display: grid; grid-template-columns: 150px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  aside .row b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  aside .row span { word-break: break-word; }
+  aside { position: sticky; top: 16px; align-self: start; }
+  ol#log { list-style: none; margin: 12px 0 0; padding: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 340px; overflow-y: auto; }
+  ol#log li { border-bottom: 1px dashed var(--line); padding: 3px 0; word-break: break-word; }
+  ol#log .t { color: var(--muted); margin-right: 6px; }
+  .tag-db { color: var(--accent); } .tag-wh { color: var(--wait); } .tag-kafka { color: var(--ok); } .tag-err { color: var(--bad); } .tag-ui { color: var(--muted); }
+
+  /* Mock 2C2P gateway modal */
+  .backdrop { position: fixed; inset: 0; background: rgba(10, 14, 22, .55); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .backdrop.open { display: flex; }
+  .gateway { width: min(460px, 100%); background: var(--card); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .gw-bar { background: var(--soft); padding: 8px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gw-head { padding: 16px 20px 0; color: var(--gw); font-weight: 800; letter-spacing: .02em; }
+  .gw-body { padding: 8px 20px 20px; }
+  .gw-amount { font-size: 30px; font-weight: 800; margin: 6px 0 2px; }
+  .gw-card { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin: 14px 0; font-size: 14px; }
+  .gw-actions { display: grid; gap: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>2C2P Checkout Demo</h1>
+    <p class="sub">Cart → <code>POST /v1/payments</code> → mock 2C2P page → frontend return + server-to-server webhook → poll <code>GET /v1/payments/{invoiceNo}/status</code></p>
+  </header>
+  <div class="alert" id="alert" role="alert"></div>
+
+  <section>
+    <!-- View 1: catalog & cart -->
+    <div id="view-shop">
+      <div class="card">
+        <h2>Products</h2>
+        <div class="products" id="products"><p class="hint">Loading products…</p></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h2>Cart</h2>
+        <table>
+          <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Subtotal</th></tr></thead>
+          <tbody id="cart-lines"><tr><td colspan="3" class="hint">Your cart is empty.</td></tr></tbody>
+          <tfoot><tr><td colspan="2">Total</td><td class="num" id="cart-total">0.00 THB</td></tr></tfoot>
+        </table>
+        <div class="cart-actions">
+          <span class="hint">The browser sends only product ids and quantities; the backend prices the order.</span>
+          <button id="checkout" disabled>Checkout with 2C2P</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- View 2: frontend return URL (/demo/return?invoiceNo=…) -->
+    <div id="view-return" class="card" hidden>
+      <h2>Order status</h2>
+      <div class="result PENDING" id="result">
+        <div id="result-icon"><span class="spin"></span></div>
+        <h3 id="result-title">Payment Pending</h3>
+        <p id="result-text">Verifying your payment with 2C2P…</p>
+      </div>
+      <dl class="facts">
+        <dt>Invoice No</dt><dd class="mono" id="r-invoice">–</dd>
+        <dt>Order</dt><dd class="mono" id="r-order">–</dd>
+        <dt>Amount</dt><dd id="r-amount">–</dd>
+      </dl>
+      <p class="hint">This page was opened by the gateway's frontend redirect, which the shop never trusts: the status comes only from the backend, which learns it from the signed server-to-server webhook.</p>
+      <div class="cart-actions"><span></span><button id="continue" class="ghost">Continue shopping</button></div>
+    </div>
+  </section>
+
+  <!-- Debug box -->
+  <aside class="card" aria-live="polite">
+    <h2>Live debug</h2>
+    <div class="row"><b>[DB Status]</b><span id="dbg-db">–</span></div>
+    <div class="row"><b>[Last Webhook Received]</b><span id="dbg-wh">–</span></div>
+    <div class="row"><b>[Kafka Outbox Event]</b><span id="dbg-kafka">–</span></div>
+    <div class="cart-actions" style="margin-top:10px">
+      <button id="replay" class="ghost" disabled title="Send the exact same signed webhook again">Replay last webhook</button>
+      <button id="clear-log" class="ghost">Clear log</button>
+    </div>
+    <ol id="log"></ol>
+  </aside>
+</main>
+
+<!-- Mock 2C2P hosted payment page -->
+<div class="backdrop" id="gateway" role="dialog" aria-modal="true" aria-labelledby="gw-title">
+  <div class="gateway">
+    <div class="gw-bar mono" id="gw-url"></div>
+    <div class="gw-head" id="gw-title">2C2P · Secure Payment <span class="hint">(mock)</span></div>
+    <div class="gw-body">
+      <div class="hint">Amount to pay</div>
+      <div class="gw-amount" id="gw-amount"></div>
+      <dl class="facts" style="margin-top:6px">
+        <dt>Merchant</dt><dd id="gw-merchant"></dd>
+        <dt>Invoice No</dt><dd class="mono" id="gw-invoice"></dd>
+      </dl>
+      <table style="margin-top:12px"><tbody id="gw-lines"></tbody></table>
+      <div class="gw-card">Card <span class="mono">4111 •••• •••• 1111</span> · 3-D Secure OTP <span class="mono">123456</span></div>
+      <div class="gw-actions">
+        <button id="gw-success" class="ok">Simulate Successful Payment (OTP Passed)</button>
+        <button id="gw-failed" class="bad">Simulate Failed Payment</button>
+        <button id="gw-cancel" class="ghost">Cancel and return to shop</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const POLL_MS = 2000;           // frontend status polling
+  const WEBHOOK_DELAY_MS = 3000;  // 2C2P's server-to-server call arrives independently of the redirect
+  const RESP_CODES = { SUCCESS: "0000", FAILED: "4001" };
+  const BASE = location.pathname.replace(/\/return\/?$/, "").replace(/\/+$/, ""); // "/demo"
+
+  // Credentials arrive once in the fragment (never sent to the server), then live in sessionStorage.
+  const creds = (() => {
+    const h = new URLSearchParams(location.hash.slice(1));
+    let c = null;
+    if (h.has("token")) {
+      c = { token: h.get("token"), merchant: h.get("merchant") || "", secret: h.get("secret") || "" };
+      try { sessionStorage.setItem("demo-creds", JSON.stringify(c)); } catch (_) { /* keep in memory only */ }
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    if (!c) {
+      try { c = JSON.parse(sessionStorage.getItem("demo-creds")); } catch (_) { c = null; }
+    }
+    return c || {};
+  })();
+
+  const state = {
+    products: [],
+    cart: new Map(),     // productId → quantity
+    payment: null,       // POST /v1/payments response
+    timer: null,
+    polls: 0,
+    lastStatus: null,
+    lastEventsSig: "",
+    lastWebhook: null,   // { body, respCode } for replay
+  };
+
+  // ---------- helpers ----------
+  function alertMsg(msg) {
+    $("alert").textContent = msg;
+    $("alert").style.display = msg ? "block" : "none";
+  }
+
+  function log(tag, text) {
+    const cls = { "DB": "tag-db", "Webhook": "tag-wh", "Kafka": "tag-kafka", "Error": "tag-err" }[tag] || "tag-ui";
+    const li = document.createElement("li");
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = new Date().toLocaleTimeString();
+    const b = document.createElement("b");
+    b.className = cls;
+    b.textContent = `[${tag}] `;
+    li.append(t, b, text);
+    $("log").prepend(li);
+  }
+
+  // Minor units → "1,000.00" with integer arithmetic only (display of the local cart estimate).
+  function fmtMinor(minor) {
+    return group(`${Math.trunc(minor / 100)}.${String(minor % 100).padStart(2, "0")}`);
+  }
+  // "1000.00" → "1,000.00" (backend decimals are shown as-is, only grouped).
+  function group(dec) {
+    const [w, f] = dec.split(".");
+    return w.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (f !== undefined ? "." + f : "");
+  }
+  const time = (iso) => iso ? new Date(iso).toLocaleTimeString() : "–";
+
+  async function api(method, path, body, auth = true) {
+    const headers = { "Content-Type": "application/json" };
+    if (auth) headers.Authorization = "Bearer " + creds.token;
+    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && auth) alertMsg("The dev JWT is missing or expired. Stop the server, run `make demo` again, and open the new URL.");
+    return { status: res.status, data };
+  }
+
+  // ---------- routing ----------
+  function route() {
+    stopPolling();
+    if (/\/return\/?$/.test(location.pathname)) {
+      showReturn(new URLSearchParams(location.search).get("invoiceNo"));
+    } else {
+      showShop();
+    }
+  }
+
+  function navigate(path) {
+    history.pushState(null, "", path);
+    route();
+  }
+
+  // ---------- view 1: catalog & cart ----------
+  async function showShop() {
+    $("view-shop").hidden = false;
+    $("view-return").hidden = true;
+    if (!state.products.length) await loadProducts();
+    renderCart();
+  }
+
+  async function loadProducts() {
+    const { status, data } = await api("GET", "/v1/products");
+    if (status !== 200) { log("Error", `GET /v1/products → ${status}`); return; }
+    state.products = data.products;
+    const box = $("products");
+    box.textContent = "";
+    for (const p of state.products) {
+      const card = document.createElement("div");
+      card.className = "product";
+      const name = document.createElement("div"); name.className = "name"; name.textContent = p.name;
+      const price = document.createElement("div"); price.className = "price"; price.textContent = `${group(p.price)} ${p.currency}`;
+      const qty = document.createElement("div"); qty.className = "qty";
+      const minus = document.createElement("button"); minus.className = "ghost"; minus.textContent = "−"; minus.setAttribute("aria-label", "Remove one " + p.name);
+      const n = document.createElement("span"); n.id = "qty-" + p.productId; n.textContent = "0";
+      const plus = document.createElement("button"); plus.className = "ghost"; plus.textContent = "+"; plus.setAttribute("aria-label", "Add one " + p.name);
+      minus.addEventListener("click", () => setQty(p.productId, (state.cart.get(p.productId) || 0) - 1));
+      plus.addEventListener("click", () => setQty(p.productId, (state.cart.get(p.productId) || 0) + 1));
+      qty.append(minus, n, plus);
+      card.append(name, price, qty);
+      box.append(card);
+    }
+    log("UI", `loaded ${state.products.length} products from GET /v1/products`);
+  }
+
+  function setQty(id, q) {
+    q = Math.max(0, Math.min(99, q));
+    if (q === 0) state.cart.delete(id); else state.cart.set(id, q);
+    $("qty-" + id).textContent = String(q);
+    renderCart();
+  }
+
+  function renderCart() {
+    const body = $("cart-lines");
+    body.textContent = "";
+    let total = 0;
+    for (const p of state.products) {
+      const q = state.cart.get(p.productId);
+      if (!q) continue;
+      const sub = p.priceMinor * q;
+      total += sub;
+      const tr = document.createElement("tr");
+      for (const [text, cls] of [[p.name, ""], [String(q), "num"], [`${fmtMinor(sub)} ${p.currency}`, "num"]]) {
+        const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; tr.append(td);
+      }
+      body.append(tr);
+    }
+    if (!body.children.length) {
+      const tr = document.createElement("tr"); const td = document.createElement("td");
+      td.colSpan = 3; td.className = "hint"; td.textContent = "Your cart is empty."; tr.append(td); body.append(tr);
+    }
+    $("cart-total").textContent = `${fmtMinor(total)} THB`;
+    $("checkout").disabled = total === 0 || !creds.token;
+  }
+
+  async function checkout() {
+    alertMsg("");
+    $("checkout").disabled = true;
+    const orderId = "ORD-" + Date.now();
+    const items = [...state.cart].map(([productId, quantity]) => ({ productId, quantity }));
+    log("UI", `POST /v1/payments orderId=${orderId} items=${items.length} (no amount sent)`);
+    try {
+      const { status, data } = await api("POST", "/v1/payments", { orderId, items });
+      if (status !== 201) {
+        if (status !== 401) alertMsg(`Checkout failed: ${status} ${data.code || ""} ${data.message || ""}`);
+        log("Error", `POST /v1/payments → ${status} ${data.code || ""}`);
+        return;
+      }
+      state.payment = data;
+      state.lastWebhook = null;
+      $("replay").disabled = true;
+      $("dbg-db").textContent = `${data.status} (created ${time(data.createdAt)})`;
+      $("dbg-wh").textContent = "none yet";
+      $("dbg-kafka").textContent = "no event yet (written only when the payment reaches a final status)";
+      log("DB", `payment ${data.invoiceNo} created: ${data.status}, ${group(data.amount)} ${data.currency} (priced by backend)`);
+      openGateway(data);
+    } catch (_) {
+      alertMsg("Cannot reach the API. Is `make demo` still running?");
+    } finally {
+      renderCart();
+    }
+  }
+
+  // ---------- mock 2C2P hosted payment page ----------
+  function openGateway(p) {
+    $("gw-url").textContent = p.checkoutUrl;
+    $("gw-amount").textContent = `${group(p.amount)} ${p.currency}`;
+    $("gw-merchant").textContent = creds.merchant || "–";
+    $("gw-invoice").textContent = p.invoiceNo;
+    const body = $("gw-lines");
+    body.textContent = "";
+    for (const l of p.lines) {
+      const tr = document.createElement("tr");
+      const a = document.createElement("td"); a.textContent = `${l.quantity} × ${l.name}`;
+      const b = document.createElement("td"); b.className = "num"; b.textContent = `${group(l.lineTotal)} ${l.currency}`;
+      tr.append(a, b); body.append(tr);
+    }
+    const canSign = Boolean(creds.secret && creds.merchant && window.crypto && crypto.subtle);
+    $("gw-success").disabled = $("gw-failed").disabled = !canSign;
+    if (!canSign) alertMsg("The webhook simulator needs the 2C2P sandbox key from `make demo` and http://localhost (WebCrypto).");
+    $("gateway").classList.add("open");
+    $("gw-success").focus();
+    log("UI", `redirected to mock 2C2P page ${p.checkoutUrl}`);
+  }
+
+  function closeGateway() { $("gateway").classList.remove("open"); }
+
+  function payAtGateway(outcome) {
+    const p = state.payment;
+    closeGateway();
+    log("UI", outcome === "SUCCESS" ? "2C2P: card authorised, 3-D Secure OTP passed" : "2C2P: card declined");
+    // Callback 1: frontend return (browser redirect). Carries no trusted result.
+    log("UI", `frontend return → ${BASE}/return?invoiceNo=${p.invoiceNo}`);
+    navigate(`${BASE}/return?invoiceNo=${encodeURIComponent(p.invoiceNo)}`);
+    // Callback 2: server-to-server webhook, independent of the browser and usually a little later.
+    log("Webhook", `2C2P will notify the backend in ${WEBHOOK_DELAY_MS / 1000} s (server-to-server)`);
+    setTimeout(() => sendWebhook(p, outcome), WEBHOOK_DELAY_MS);
+  }
+
+  const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  // Compact JWT signed HS256 with the merchant secret, as 2C2P signs its backend notification.
+  async function signHS256(claims, secret) {
+    const enc = new TextEncoder();
+    const head = b64url(enc.encode(JSON.stringify({ alg: "HS256", typ: "JWT" })));
+    const body = b64url(enc.encode(JSON.stringify(claims)));
+    const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = await crypto.subtle.sign("HMAC", key, enc.encode(head + "." + body));
+    return head + "." + body + "." + b64url(sig);
+  }
+
+  async function sendWebhook(p, outcome) {
+    const claims = {
+      merchantID: creds.merchant,
+      invoiceNo: p.invoiceNo,
+      amount: p.amount,                 // decimal string, as 2C2P sends it
+      currencyCode: p.currency,
+      tranRef: "SIM" + p.invoiceNo.slice(-12), // stable per payment, so a replay is a duplicate
+      respCode: RESP_CODES[outcome],
+    };
+    const body = { payload: await signHS256(claims, creds.secret) };
+    state.lastWebhook = { body, respCode: claims.respCode };
+    await postWebhook(false);
+  }
+
+  async function postWebhook(replay) {
+    const w = state.lastWebhook;
+    if (!w) return;
+    try {
+      const { status, data } = await api("POST", "/webhooks/2c2p", w.body, false);
+      const result = data.outcome || data.code || "";
+      $("dbg-wh").textContent = `${new Date().toLocaleTimeString()} · respCode ${w.respCode} → HTTP ${status} ${result}`;
+      log("Webhook", `${replay ? "replayed" : "received"} POST /webhooks/2c2p respCode=${w.respCode} → ${status} ${result}`);
+      $("replay").disabled = false;
+    } catch (_) {
+      log("Error", "webhook could not reach the API");
+    }
+  }
+
+  // ---------- view 2: return page + polling ----------
+  function showReturn(invoiceNo) {
+    if (!invoiceNo) { navigate(BASE); return; }
+    $("view-shop").hidden = true;
+    $("view-return").hidden = false;
+    $("r-invoice").textContent = invoiceNo;
+    state.polls = 0;
+    state.lastStatus = null;
+    state.lastEventsSig = "";
+    renderResult("PENDING");
+    tick(invoiceNo);
+    state.timer = setInterval(() => tick(invoiceNo), POLL_MS);
+  }
+
+  function stopPolling() {
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+
+  function renderResult(status) {
+    const r = $("result");
+    r.className = "result " + status;
+    const icon = $("result-icon");
+    icon.textContent = "";
+    if (status === "PENDING") {
+      const s = document.createElement("span"); s.className = "spin"; icon.append(s);
+    } else {
+      const s = document.createElement("span"); s.className = "big-icon"; s.textContent = status === "SUCCESS" ? "✓" : "✕"; icon.append(s);
+    }
+    const [title, text] = {
+      PENDING: ["Payment Pending", "Verifying your payment with 2C2P…"],
+      SUCCESS: ["Payment Successful! Order Confirmed", "Thank you. Your order is being prepared."],
+      FAILED: ["Payment Failed", "The payment was declined. You have not been charged."],
+    }[status] || [status, ""];
+    $("result-title").textContent = title;
+    $("result-text").textContent = text;
+  }
+
+  async function tick(invoiceNo) {
+    const path = encodeURIComponent(invoiceNo);
+    let s;
+    try {
+      s = await api("GET", `/v1/payments/${path}/status`);
+    } catch (_) {
+      log("Error", "status poll failed: API unreachable");
+      return;
+    }
+    state.polls++;
+    if (s.status !== 200) {
+      log("Error", `GET status → ${s.status} ${s.data.code || ""}`);
+      stopPolling();
+      return;
+    }
+    const p = s.data;
+    $("r-order").textContent = p.orderId;
+    $("r-amount").textContent = `${group(p.amount)} ${p.currency}`;
+    $("dbg-db").textContent = `${p.status} · updated ${time(p.updatedAt)} · poll #${state.polls}`;
+    if (p.status !== state.lastStatus) {
+      log("DB", `GET status (poll #${state.polls}) → ${p.status}`);
+      state.lastStatus = p.status;
+      renderResult(p.status);
+    }
+
+    let settled = false;
+    const e = await api("GET", `/v1/demo/payments/${path}/events`).catch(() => null);
+    if (e && e.status === 200) settled = renderEvents(e.data);
+
+    if (p.status !== "PENDING" && settled) {
+      stopPolling();
+      log("UI", "final status and its event are settled; polling stopped");
+    }
+  }
+
+  // Returns true when there is nothing more to wait for on the outbox side.
+  function renderEvents({ publisher, events }) {
+    let text, settled;
+    if (!events.length) {
+      text = "no event yet (written in the same transaction as the status change)";
+      settled = false;
+    } else {
+      const ev = events[events.length - 1];
+      const topic = `${ev.topic} key=${ev.key.slice(0, 8)}…`;
+      if (ev.publishedAt && publisher === "kafka") {
+        text = `✓ published to Kafka at ${time(ev.publishedAt)} · ${topic}`;
+      } else if (ev.publishedAt) {
+        text = `published in-process at ${time(ev.publishedAt)} (not Kafka: start with KAFKA_BROKERS=localhost:9092)`;
+      } else if (publisher === "disabled") {
+        text = `in outbox since ${time(ev.createdAt)}, relay disabled (KAFKA_BROKERS not set)`;
+      } else {
+        text = `in outbox since ${time(ev.createdAt)}, waiting for the relay…`;
+      }
+      settled = Boolean(ev.publishedAt) || publisher === "disabled";
+      text += events.length > 1 ? ` · ${events.length} events` : "";
+    }
+    $("dbg-kafka").textContent = text;
+    const sig = events.map((x) => x.eventId + (x.publishedAt ? "+" : "")).join(",");
+    if (sig !== state.lastEventsSig) {
+      state.lastEventsSig = sig;
+      if (events.length) {
+        const ev = events[events.length - 1];
+        const o = ev.payload || {};
+        log("Kafka", `${ev.publishedAt ? "event emitted" : "outbox row written"} event_id=${ev.eventId.slice(0, 8)}… ` +
+          `${o.status} amount=${o.amount} amount_minor=${o.amount_minor}`);
+      }
+    }
+    return settled;
+  }
+
+  // ---------- wiring ----------
+  $("checkout").addEventListener("click", checkout);
+  $("gw-success").addEventListener("click", () => payAtGateway("SUCCESS"));
+  $("gw-failed").addEventListener("click", () => payAtGateway("FAILED"));
+  $("gw-cancel").addEventListener("click", () => { closeGateway(); log("UI", "customer cancelled on the 2C2P page; payment stays PENDING"); });
+  $("gateway").addEventListener("keydown", (ev) => { if (ev.key === "Escape") $("gw-cancel").click(); });
+  $("continue").addEventListener("click", () => {
+    state.cart.clear();
+    for (const p of state.products) { const n = $("qty-" + p.productId); if (n) n.textContent = "0"; }
+    navigate(BASE);
+  });
+  $("replay").addEventListener("click", () => postWebhook(true));
+  $("clear-log").addEventListener("click", () => { $("log").textContent = ""; });
+  window.addEventListener("popstate", route);
+
+  if (!creds.token) {
+    alertMsg("No credentials. Start the API with `make demo` and open the URL it prints.");
+  } else {
+    route();
+  }
+})();
+</script>
+</body>
+</html>

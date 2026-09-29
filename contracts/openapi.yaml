@@ -17,6 +17,10 @@ tags:
     description: Liveness and readiness probes for the platform
   - name: webhooks
     description: Callbacks from payment providers, authenticated by signature
+  - name: payments
+    description: Payments the authenticated customer starts and follows
+  - name: demo
+    description: Local demo diagnostics; present only with DEMO_UI_ENABLED=true
 paths:
   /healthz:
     get:
@@ -103,6 +107,100 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "500": { $ref: "#/components/responses/InternalError" }
+  /v1/products:
+    get:
+      operationId: listProducts
+      summary: Products the customer can buy, priced by the backend
+      tags: [payments]
+      responses:
+        "200":
+          description: Catalog
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [products]
+                properties:
+                  products:
+                    type: array
+                    items: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /v1/payments:
+    post:
+      operationId: createPayment
+      summary: Price a cart, create a PENDING payment, and open a 2C2P payment session
+      description: |
+        The client sends products and quantities only; the backend prices them from the
+        catalog. Each call creates a new payment with a server-generated invoiceNo, the
+        reference shared with 2C2P. The payment belongs to the token's subject. The
+        session is currently issued by a stub gateway. See docs/02-specs/payment-checkout.md.
+      tags: [payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePaymentRequest" }
+      responses:
+        "201":
+          description: Payment created
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentCheckout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /v1/payments/{invoiceNo}/status:
+    get:
+      operationId: getPaymentStatus
+      summary: Current status of one of the caller's payments (for polling)
+      tags: [payments]
+      parameters:
+        - name: invoiceNo
+          in: path
+          required: true
+          schema: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: Payment status
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /v1/demo/payments/{invoiceNo}/events:
+    get:
+      operationId: getDemoPaymentEvents
+      summary: Outbox events of one of the caller's payments (local demo only)
+      description: |
+        Exists only when the server runs with DEMO_UI_ENABLED=true (otherwise 404). Shows
+        whether the payment.status-changed event is still in the outbox or was published,
+        and where the relay publishes (kafka, in-process, or disabled).
+      tags: [demo]
+      parameters:
+        - name: invoiceNo
+          in: path
+          required: true
+          schema: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: Events, oldest first
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DemoPaymentEvents" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
 components:
   securitySchemes:
     bearerAuth:
@@ -179,6 +277,116 @@ components:
           type: string
           pattern: "^[A-Z]{3}$"
           example: THB
+    CreatePaymentRequest:
+      type: object
+      required: [orderId, items]
+      additionalProperties: false
+      description: No amount; the backend prices the items.
+      properties:
+        orderId:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{1,64}$"
+          example: ORD-20260929-0001
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Each productId at most once.
+          items:
+            type: object
+            required: [productId, quantity]
+            additionalProperties: false
+            properties:
+              productId: { type: string, example: CERAMIC-MUG }
+              quantity: { type: integer, minimum: 1, maximum: 99 }
+    Product:
+      type: object
+      required: [productId, name, price, priceMinor, currency]
+      properties:
+        productId: { type: string }
+        name: { type: string }
+        price: { $ref: "#/components/schemas/DecimalAmount" }
+        priceMinor: { $ref: "#/components/schemas/AmountMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+    OrderLine:
+      type: object
+      required: [productId, name, quantity, unitPrice, unitPriceMinor, lineTotal, lineTotalMinor, currency]
+      properties:
+        productId: { type: string }
+        name: { type: string }
+        quantity: { type: integer }
+        unitPrice: { $ref: "#/components/schemas/DecimalAmount" }
+        unitPriceMinor: { $ref: "#/components/schemas/AmountMinor" }
+        lineTotal: { $ref: "#/components/schemas/DecimalAmount" }
+        lineTotalMinor: { $ref: "#/components/schemas/AmountMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+    DemoPaymentEvents:
+      type: object
+      required: [publisher, events]
+      properties:
+        publisher: { type: string, enum: [kafka, in-process, disabled] }
+        events:
+          type: array
+          items:
+            type: object
+            required: [eventId, topic, key, createdAt, publishedAt, payload]
+            properties:
+              eventId: { type: string, format: uuid }
+              topic: { type: string }
+              key: { type: string, description: payment id }
+              createdAt: { type: string, format: date-time }
+              publishedAt: { type: [string, "null"], format: date-time, description: null until the relay published it }
+              payload: { type: object, description: "payment.status-changed payload, see contracts/asyncapi.yaml" }
+    DecimalAmount:
+      type: string
+      pattern: "^\\d{1,15}\\.\\d{2}$"
+      description: |
+        Amount in major units as a decimal string with two places, e.g. "1000.00" THB.
+        A string, never a float.
+      example: "1000.00"
+    AmountMinor:
+      type: integer
+      format: int64
+      description: The same amount in minor units (satang for THB), e.g. 100000 = 1,000.00 THB. Use this for arithmetic.
+      example: 100000
+    Currency:
+      type: string
+      pattern: "^[A-Z]{3}$"
+      example: THB
+    PaymentStatusValue:
+      type: string
+      enum: [PENDING, SUCCESS, FAILED]
+    PaymentCheckout:
+      type: object
+      required: [paymentId, invoiceNo, orderId, status, lines, amount, amountMinor, currency, paymentToken, checkoutUrl, createdAt]
+      properties:
+        paymentId: { type: string, format: uuid }
+        invoiceNo:
+          type: string
+          description: Reference shared with 2C2P; use it to poll the status
+          example: INV3F2A9C0B7E5D4C1A8B6F0E2D9C7A5B31
+        orderId: { type: string }
+        status: { $ref: "#/components/schemas/PaymentStatusValue" }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/OrderLine" }
+        amount: { $ref: "#/components/schemas/DecimalAmount" }
+        amountMinor: { $ref: "#/components/schemas/AmountMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        paymentToken: { type: string, description: 2C2P payment token for the hosted payment page }
+        checkoutUrl: { type: string, format: uri, description: 2C2P hosted payment page to send the customer to }
+        createdAt: { type: string, format: date-time }
+    PaymentStatus:
+      type: object
+      required: [invoiceNo, orderId, status, amount, amountMinor, currency, updatedAt]
+      properties:
+        invoiceNo: { type: string }
+        orderId: { type: string }
+        status: { $ref: "#/components/schemas/PaymentStatusValue" }
+        amount: { $ref: "#/components/schemas/DecimalAmount" }
+        amountMinor: { $ref: "#/components/schemas/AmountMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        updatedAt: { type: string, format: date-time }
     Error:
       type: object
       required: [code, message, traceId]

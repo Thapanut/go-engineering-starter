@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/inbound/httpapi"
+	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/catalog"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/kafka"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/memory"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/postgres"
@@ -51,10 +52,13 @@ func run() error {
 	// NewApp (JWT-protected modules as arguments, signature-authenticated ones in Public).
 	webhooks := service.NewWebhookService(
 		twoc2p.NewVerifier(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, system.UUIDGenerator{}, log)
+	// UNCONFIRMED: the sample catalog and StubGateway stand in for a pricing service and
+	// the 2C2P Payment Token API (spec payment-checkout).
+	checkout := service.NewCheckoutService(st.tx, catalog.Sample(), twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
 
 	// The outbox relay runs until shutdown; it must stop before the store closes.
 	relayDone := make(chan struct{})
-	pub, closePub := newPublisher(cfg, log)
+	pub, pubKind, closePub := newPublisher(cfg, log)
 	if pub != nil {
 		relay := service.NewOutboxRelay(st.tx, pub, system.Clock{}, log, outboxBatchSize)
 		go func() { defer close(relayDone); relay.Run(ctx, cfg.OutboxPollInterval) }()
@@ -63,13 +67,20 @@ func run() error {
 	}
 	defer func() { stop(); <-relayDone; closePub() }()
 
+	public := []httpapi.PublicModule{httpapi.WebhookModule{UseCase: webhooks}}
+	modules := []httpapi.Module{httpapi.PaymentModule{UseCase: checkout}}
+	if cfg.DemoUI {
+		log.Warn("DEMO_UI_ENABLED: serving the payment demo page at /demo; not for production")
+		demo := httpapi.DemoModule{Events: checkout, Publisher: pubKind}
+		public, modules = append(public, demo), append(modules, demo)
+	}
 	app := httpapi.NewApp(httpapi.Deps{
 		Auth:           auth.NewJWT(cfg.JWTSecret, cfg.JWTIssuer),
 		Log:            log,
 		RequestTimeout: cfg.RequestTimeout,
 		Ready:          st.ready,
-		Public:         []httpapi.PublicModule{httpapi.WebhookModule{UseCase: webhooks}},
-	})
+		Public:         public,
+	}, modules...)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -94,23 +105,24 @@ func run() error {
 // outboxBatchSize bounds how many messages one relay transaction locks and publishes.
 const outboxBatchSize = 100
 
-// newPublisher selects where outbox messages go. Without KAFKA_BROKERS the Postgres
-// relay is disabled and events wait safely in the outbox until Kafka is configured.
-func newPublisher(cfg config.Config, log *slog.Logger) (port.MessagePublisher, func()) {
+// newPublisher selects where outbox messages go and names the choice for the demo
+// page. Without KAFKA_BROKERS the Postgres relay is disabled and events wait safely
+// in the outbox until Kafka is configured.
+func newPublisher(cfg config.Config, log *slog.Logger) (port.MessagePublisher, string, func()) {
 	switch {
 	case len(cfg.KafkaBrokers) > 0:
 		p := kafka.NewPublisher(cfg.KafkaBrokers)
-		return p, func() {
+		return p, httpapi.PublisherKafka, func() {
 			if err := p.Close(); err != nil {
 				log.Warn("close kafka publisher", slog.String("error", err.Error()))
 			}
 		}
 	case cfg.Store == config.StoreMemory:
 		log.Warn("KAFKA_BROKERS not set; publishing events in-process only (STORE=memory)")
-		return &memory.Publisher{}, func() {}
+		return &memory.Publisher{}, httpapi.PublisherInProcess, func() {}
 	default:
 		log.Warn("KAFKA_BROKERS not set; outbox relay disabled, events stay in the outbox")
-		return nil, func() {}
+		return nil, httpapi.PublisherDisabled, func() {}
 	}
 }
 

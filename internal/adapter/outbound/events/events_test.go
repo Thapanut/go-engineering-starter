@@ -30,7 +30,7 @@ func TestPaymentStatusChangedMatchesContract(t *testing.T) {
 	}
 	want := map[string]any{
 		"event_id": "7f0c2b1e-5d4a-4e8b-9a61-3c2d1e0f9a8b", "payment_id": "0e6a4f6e-6a1f-4f5e-9d6e-2b7f3c1a9d01",
-		"invoice_no": "INV-0001", "status": "SUCCESS", "amount": float64(23087), "currency": "THB",
+		"invoice_no": "INV-0001", "status": "SUCCESS", "amount": "230.87", "amount_minor": float64(23087), "currency": "THB",
 		"provider_ref": "2868821", "occurred_at": "2026-09-27T10:00:00Z",
 	}
 	if len(got) != len(want) {

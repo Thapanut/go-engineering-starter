@@ -21,7 +21,8 @@ type paymentStatusChangedV1 struct {
 	PaymentID   string    `json:"payment_id"`
 	InvoiceNo   string    `json:"invoice_no"`
 	Status      string    `json:"status"`
-	Amount      int64     `json:"amount"` // minor units
+	Amount      string    `json:"amount"`       // major units as a decimal string, e.g. "1000.00"
+	AmountMinor int64     `json:"amount_minor"` // minor units, e.g. 100000
 	Currency    string    `json:"currency"`
 	ProviderRef string    `json:"provider_ref"`
 	OccurredAt  time.Time `json:"occurred_at"`
@@ -35,7 +36,8 @@ func PaymentStatusChanged(e domain.PaymentStatusChanged) (port.OutboxMessage, er
 		PaymentID:   e.PaymentID,
 		InvoiceNo:   e.InvoiceNo,
 		Status:      string(e.Status),
-		Amount:      e.Amount.Amount,
+		Amount:      e.Amount.Decimal(),
+		AmountMinor: e.Amount.Amount,
 		Currency:    string(e.Amount.Currency),
 		ProviderRef: e.ProviderRef,
 		OccurredAt:  occurred,

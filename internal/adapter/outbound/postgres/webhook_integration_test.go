@@ -49,7 +49,8 @@ func setupPayments(t *testing.T) (*service.WebhookService, *gorm.DB) {
 func applyMigrations(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	for _, f := range []string{
-		"0002_outbox.down.sql", "0001_payments.down.sql", "0001_payments.up.sql", "0002_outbox.up.sql",
+		"0003_payment_checkout.down.sql", "0002_outbox.down.sql", "0001_payments.down.sql",
+		"0001_payments.up.sql", "0002_outbox.up.sql", "0003_payment_checkout.up.sql",
 	} {
 		sql, err := os.ReadFile("../../../../migrations/" + f)
 		if err != nil {

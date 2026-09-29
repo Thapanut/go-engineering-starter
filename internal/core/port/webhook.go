@@ -29,6 +29,9 @@ type WebhookVerifier interface {
 // PaymentRepository persists payments (outbound port).
 type PaymentRepository interface {
 	Create(ctx context.Context, p domain.Payment) error
+	// GetByInvoiceNo reads a payment without locking it.
+	// It returns domain.ErrNotFound if no payment has that invoice number.
+	GetByInvoiceNo(ctx context.Context, invoiceNo string) (domain.Payment, error)
 	// GetByInvoiceNoForUpdate locks the payment until the transaction ends.
 	// It returns domain.ErrNotFound if no payment has that invoice number.
 	GetByInvoiceNoForUpdate(ctx context.Context, invoiceNo string) (domain.Payment, error)

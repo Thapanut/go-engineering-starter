@@ -13,8 +13,9 @@ import (
 )
 
 type outboxEntry struct {
-	msg       port.OutboxMessage
-	published bool
+	msg         port.OutboxMessage
+	published   bool
+	publishedAt time.Time
 }
 
 // outboxRepo implements port.OutboxRepository on the transaction's working copy.
@@ -43,11 +44,11 @@ func (r outboxRepo) ClaimPending(_ context.Context, limit int) ([]port.OutboxMes
 	return msgs, nil
 }
 
-func (r outboxRepo) MarkPublished(_ context.Context, ids []string, _ time.Time) error {
+func (r outboxRepo) MarkPublished(_ context.Context, ids []string, at time.Time) error {
 	marked := 0
 	for i := range r.st.outbox {
 		if !r.st.outbox[i].published && slices.Contains(ids, r.st.outbox[i].msg.ID) {
-			r.st.outbox[i].published = true
+			r.st.outbox[i].published, r.st.outbox[i].publishedAt = true, at
 			marked++
 		}
 	}
@@ -55,6 +56,16 @@ func (r outboxRepo) MarkPublished(_ context.Context, ids []string, _ time.Time) 
 		return fmt.Errorf("marked %d of %d outbox messages: %w", marked, len(ids), domain.ErrConflict)
 	}
 	return nil
+}
+
+func (r outboxRepo) ListByKey(_ context.Context, key string) ([]port.OutboxRecord, error) {
+	var recs []port.OutboxRecord
+	for _, e := range r.st.outbox {
+		if e.msg.Key == key {
+			recs = append(recs, port.OutboxRecord{Message: e.msg, PublishedAt: e.publishedAt})
+		}
+	}
+	return recs, nil
 }
 
 // Publisher is an in-process port.MessagePublisher for STORE=memory and tests: it

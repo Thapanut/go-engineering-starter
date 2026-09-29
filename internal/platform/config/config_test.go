@@ -51,3 +51,19 @@ func TestLoadRejectsBadPollInterval(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDemoUIDefaultsToOff(t *testing.T) {
+	setRequired(t)
+	t.Setenv("DEMO_UI_ENABLED", "")
+	if c, err := Load(); err != nil || c.DemoUI {
+		t.Fatalf("DemoUI=%v err=%v", c.DemoUI, err)
+	}
+	t.Setenv("DEMO_UI_ENABLED", "true")
+	if c, err := Load(); err != nil || !c.DemoUI {
+		t.Fatalf("DemoUI=%v err=%v", c.DemoUI, err)
+	}
+	t.Setenv("DEMO_UI_ENABLED", "yes please")
+	if _, err := Load(); err == nil {
+		t.Fatal("want error for a non-boolean DEMO_UI_ENABLED")
+	}
+}

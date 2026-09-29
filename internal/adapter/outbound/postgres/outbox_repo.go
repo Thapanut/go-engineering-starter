@@ -73,3 +73,22 @@ func (r outboxRepo) MarkPublished(ctx context.Context, ids []string, at time.Tim
 	}
 	return nil
 }
+
+// ListByKey scans the outbox by message_key (no index; diagnostics only).
+func (r outboxRepo) ListByKey(ctx context.Context, key string) ([]port.OutboxRecord, error) {
+	var rows []outboxModel
+	err := r.db.WithContext(ctx).Where("message_key = ?", key).Order("created_at, id").Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("select outbox messages by key: %w", err)
+	}
+	recs := make([]port.OutboxRecord, len(rows))
+	for i, m := range rows {
+		recs[i] = port.OutboxRecord{Message: port.OutboxMessage{
+			ID: m.ID, Topic: m.Topic, Key: m.MessageKey, Payload: m.Payload, CreatedAt: m.CreatedAt,
+		}}
+		if m.PublishedAt != nil {
+			recs[i].PublishedAt = *m.PublishedAt
+		}
+	}
+	return recs, nil
+}

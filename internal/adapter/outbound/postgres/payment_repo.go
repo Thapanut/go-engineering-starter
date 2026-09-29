@@ -17,6 +17,8 @@ import (
 type paymentModel struct {
 	ID           string    `gorm:"column:id;primaryKey"`
 	InvoiceNo    string    `gorm:"column:invoice_no"`
+	OrderID      string    `gorm:"column:order_id"`
+	CustomerID   string    `gorm:"column:customer_id"`
 	Amount       int64     `gorm:"column:amount"`
 	Currency     string    `gorm:"column:currency"`
 	Status       string    `gorm:"column:status"`
@@ -30,7 +32,7 @@ func (paymentModel) TableName() string { return "payments" }
 
 func toPaymentModel(p domain.Payment) paymentModel {
 	return paymentModel{
-		ID: p.ID, InvoiceNo: p.InvoiceNo, Amount: p.Amount.Amount, Currency: string(p.Amount.Currency),
+		ID: p.ID, InvoiceNo: p.InvoiceNo, OrderID: p.OrderID, CustomerID: p.CustomerID, Amount: p.Amount.Amount, Currency: string(p.Amount.Currency),
 		Status: string(p.Status), ProviderRef: p.ProviderRef, ProviderCode: p.ProviderCode,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
@@ -38,7 +40,7 @@ func toPaymentModel(p domain.Payment) paymentModel {
 
 func (m paymentModel) toDomain() domain.Payment {
 	return domain.Payment{
-		ID: m.ID, InvoiceNo: m.InvoiceNo,
+		ID: m.ID, InvoiceNo: m.InvoiceNo, OrderID: m.OrderID, CustomerID: m.CustomerID,
 		Amount:      domain.Money{Amount: m.Amount, Currency: domain.Currency(m.Currency)},
 		Status:      domain.PaymentStatus(m.Status),
 		ProviderRef: m.ProviderRef, ProviderCode: m.ProviderCode,
@@ -71,11 +73,17 @@ func (r paymentRepo) Create(ctx context.Context, p domain.Payment) error {
 // GetByInvoiceNoForUpdate takes a row lock (SELECT … FOR UPDATE) so concurrent
 // deliveries of the same notification are serialized (spec AC-10).
 func (r paymentRepo) GetByInvoiceNoForUpdate(ctx context.Context, invoiceNo string) (domain.Payment, error) {
+	return takeByInvoiceNo(r.db.WithContext(ctx).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}), invoiceNo)
+}
+
+// GetByInvoiceNo is a plain read for status queries; it takes no lock.
+func (r paymentRepo) GetByInvoiceNo(ctx context.Context, invoiceNo string) (domain.Payment, error) {
+	return takeByInvoiceNo(r.db.WithContext(ctx), invoiceNo)
+}
+
+func takeByInvoiceNo(q *gorm.DB, invoiceNo string) (domain.Payment, error) {
 	var m paymentModel
-	err := r.db.WithContext(ctx).
-		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
-		Where("invoice_no = ?", invoiceNo).
-		Take(&m).Error
+	err := q.Where("invoice_no = ?", invoiceNo).Take(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return domain.Payment{}, fmt.Errorf("payment: %w", domain.ErrNotFound)
 	}

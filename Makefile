@@ -1,4 +1,4 @@
-.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset kafka-up kafka-down kafka-consume kafka-ui webhook-demo docker-build
+.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset kafka-up kafka-down kafka-consume kafka-ui webhook-demo demo docker-build
 
 # Local dev defaults; override via environment or .env (never commit .env).
 -include .env
@@ -64,6 +64,11 @@ kafka-consume: ## Tail payment events from the beginning (Ctrl+C to stop)
 
 webhook-demo: ## Seed a PENDING payment and send it a signed 2C2P webhook: make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001
 	@bash scripts/dev-2c2p-webhook.sh
+
+demo: ## Run the API with the payment demo page and print its URL (STORE=memory: no Docker)
+	@[ "$(STORE)" = memory ] || $(MAKE) --no-print-directory db-up
+	@echo "Open: $$(go run ./cmd/devtoken -sub demo-customer -ttl 8h -demo-url)"
+	DEMO_UI_ENABLED=true go run ./cmd/api
 
 docker-build: ## Build the production image
 	docker build -t go-engineering-starter:local .
