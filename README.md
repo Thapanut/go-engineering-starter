@@ -50,6 +50,7 @@ TOKEN=$(make -s token)     # JWT สำหรับเรียก /v1/*
 make kafka-up                             # Kafka ใน Docker + สร้าง topic
 make run KAFKA_BROKERS=localhost:9092     # terminal 1 (หรือใส่ KAFKA_BROKERS ใน .env)
 make kafka-consume                        # terminal 2: ดู event ที่ถูก publish
+make kafka-ui                             # หรือดูผ่านเว็บ: kafka-ui ที่ http://localhost:8081 (API ใช้ 8080)
 make webhook-demo                         # terminal 3: สร้าง payment PENDING + ส่ง webhook ที่เซ็นแล้ว → PROCESSED
 make webhook-demo                         # ส่งซ้ำ → DUPLICATE, ไม่มี event ใหม่
 make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001   # payment ใหม่ → FAILED

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added — kafka-ui for local Kafka
+- `kafka-ui` (provectuslabs/kafka-ui) in docker-compose on http://localhost:8081 (`KAFKA_UI_PORT`); `make kafka-ui` starts Kafka and the UI and opens it; `make kafka-down` stops both.
+- Local Kafka gets a second listener, `kafka:29092` for containers, next to `localhost:9092` for the host.
+
 ### Added — Payment events via transactional outbox (`docs/02-specs/payment-events-outbox.md`, ADR-0004)
 - `payment.status-changed` on Kafka topic `payments.v1.status-changed` (contract `contracts/asyncapi.yaml`), keyed by payment id, written to the `outbox` table in the same transaction as the payment transition.
 - `service.OutboxRelay`: claims unpublished rows with `FOR UPDATE SKIP LOCKED`, publishes (acks=all), marks them published; at-least-once, consumers deduplicate on `event_id`. Runs as a goroutine in `cmd/api`.

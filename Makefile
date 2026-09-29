@@ -1,4 +1,4 @@
-.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset kafka-up kafka-down kafka-consume webhook-demo docker-build
+.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset kafka-up kafka-down kafka-consume kafka-ui webhook-demo docker-build
 
 # Local dev defaults; override via environment or .env (never commit .env).
 -include .env
@@ -50,8 +50,13 @@ kafka-up: ## Start local Kafka and create the topic (then set KAFKA_BROKERS=loca
 	docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic payments.v1.status-changed --partitions 3
 
-kafka-down: ## Stop local Kafka (keeps its data; `docker compose rm -sf kafka` to wipe)
-	docker compose stop kafka
+kafka-down: ## Stop local Kafka and kafka-ui (keeps its data; `docker compose rm -sf kafka` to wipe)
+	docker compose stop kafka-ui kafka
+
+kafka-ui: kafka-up ## Start kafka-ui on http://localhost:8081 (KAFKA_UI_PORT to change) and open it
+	docker compose up -d kafka-ui
+	@url="http://localhost:$${KAFKA_UI_PORT:-8081}"; echo "kafka-ui: $$url"; \
+		command -v open >/dev/null && open "$$url" || true
 
 kafka-consume: ## Tail payment events from the beginning (Ctrl+C to stop)
 	docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
