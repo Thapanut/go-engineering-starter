@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added — Dead-letter queue and bounded retry for the ordering consumer (`docs/02-specs/ordering-consumer-dlq.md`, ADR-0004 amendment 1)
+- Poison payment events (undecodable, or rejected by validation) go to `payments.v1.status-changed.ordering.dlq` with the original key, value, and headers plus `dlq-*` diagnostic headers, then the offset is committed. Previously they were logged and skipped.
+- Transient failures retry with backoff 1 s doubling to 30 s (±20 %), never dead-lettered; ERROR "payment event consumer stalled" every 5 min on one message. A DLQ outage is transient: no commit until the DLQ write is acknowledged.
+- `cmd/dlqreplay` (`make dlq-replay`), run by an Admin: dry run by default; replays byte for byte into `payments.v1.status-changed.ordering.retry` (read only by group `ordering`) with `dlq-replay-count` + 1; JSON audit line per message.
+- AsyncAPI: DLQ and retry channels, `PaymentStatusChangedDeadLetter` message, three operations. `make kafka-up` creates both topics (DLQ retention 14 days).
+
 ### Changed — Products are identified by UUID; the code becomes the SKU (`docs/02-specs/order-flow-modules.md` §4)
 - Migration `0007_product_uuid_sku`: `catalog.products.id` is a `uuid` primary key; the former text id (e.g. `CERAMIC-MUG`) moves to `sku` (unique, may change). `ordering.order_lines.product_id` becomes `uuid` and lines snapshot `sku`; existing lines are converted.
 - OpenAPI (unreleased): `productId` is a lowercase UUID; `Product` and `OrderLine` have `sku`. `POST /v1/orders` rejects a `productId` that is not a UUID with `VALIDATION_ERROR`.

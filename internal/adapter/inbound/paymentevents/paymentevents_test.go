@@ -70,17 +70,28 @@ func TestHandleDecodesTheContractPayload(t *testing.T) {
 	}
 }
 
-func TestHandleSkipsMalformedMessages(t *testing.T) {
+func TestDLQAC02_HandleReportsMalformedMessagesAsPoison(t *testing.T) {
 	uc := &recordingUseCase{}
 	h, logs := newHandler(uc)
 	for _, bad := range []string{`not json`, `{"status":"SUCCESS","amount_minor":1,"currency":"THB"}`,
 		strings.Replace(validEvent, `"SUCCESS"`, `"PENDING"`, 1), strings.Replace(validEvent, `"amount_minor":119000,`, ``, 1)} {
-		if err := h.Handle(context.Background(), []byte(bad)); err != nil {
-			t.Fatalf("%s: err = %v, want nil (skip)", bad, err)
+		err := h.Handle(context.Background(), []byte(bad))
+		if !errors.Is(err, ErrPoison) || PoisonReason(err) == "" {
+			t.Fatalf("%s: err = %v, want ErrPoison with a reason", bad, err)
+		}
+		if err := h.DeliverInProcess(context.Background(), []byte(bad)); err != nil {
+			t.Fatalf("%s: in-process err = %v, want nil (AC-16: logged and skipped)", bad, err)
 		}
 	}
-	if len(uc.got) != 0 || !strings.Contains(logs.String(), "dropping malformed payment event") {
+	if len(uc.got) != 0 || !strings.Contains(logs.String(), "poison payment event: cannot decode") {
 		t.Fatalf("got %+v, logs %s", uc.got, logs)
+	}
+}
+
+func TestDLQAC03_ValidationErrorIsPoison(t *testing.T) {
+	h, _ := newHandler(&recordingUseCase{errs: []error{kernel.Invalid("event_id is required")}})
+	if err := h.Handle(context.Background(), []byte(validEvent)); !errors.Is(err, ErrPoison) {
+		t.Fatalf("err = %v, want ErrPoison", err)
 	}
 }
 
@@ -125,7 +136,7 @@ func TestOrderFlowAC12_OffsetCommittedOnlyAfterSuccess(t *testing.T) {
 	uc := &recordingUseCase{errs: []error{errors.New("db down"), errors.New("still down")}}
 	h, _ := newHandler(uc)
 	r := &fakeReader{msgs: []kafkago.Message{{Offset: 7, Value: []byte(validEvent)}}}
-	c := newConsumer(r, h, time.Millisecond)
+	c := newConsumer(r, &fakeWriter{}, h, fastBackoff)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); c.Run(ctx) }()

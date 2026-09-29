@@ -10,9 +10,12 @@ info:
     key (the payment id) go to the same partition, so they are consumed in order.
 
     The ordering module of this same service consumes them (consumer group `ordering`,
-    ADR-0005) to mark orders PAID or PAYMENT_FAILED.
+    ADR-0005) to mark orders PAID or PAYMENT_FAILED. Messages ordering can never apply
+    go to its dead-letter topic; an Admin replays them into its retry topic (ADR-0004
+    amendment 1).
 
-    Specs: docs/02-specs/payment-events-outbox.md, docs/02-specs/order-flow-modules.md
+    Specs: docs/02-specs/payment-events-outbox.md, docs/02-specs/order-flow-modules.md,
+    docs/02-specs/ordering-consumer-dlq.md
 defaultContentType: application/json
 
 servers:
@@ -35,6 +38,31 @@ channels:
       kafka:
         bindingVersion: 0.5.0
 
+  paymentStatusChangedOrderingDlq:
+    address: payments.v1.status-changed.ordering.dlq
+    description: |
+      Messages the `ordering` consumer can never apply (undecodable or invalid), written
+      before their source offset is committed. One partition, retention 14 days.
+      Business outcomes (unknown order, amount mismatch, final order) never go here.
+    messages:
+      paymentStatusChangedDeadLetter:
+        $ref: "#/components/messages/PaymentStatusChangedDeadLetter"
+    bindings:
+      kafka:
+        bindingVersion: 0.5.0
+        partitions: 1
+  paymentStatusChangedOrderingRetry:
+    address: payments.v1.status-changed.ordering.retry
+    description: |
+      Dead-lettered messages an Admin replayed with cmd/dlqreplay. Read only by consumer
+      group `ordering`, together with payments.v1.status-changed. One partition.
+    messages:
+      paymentStatusChanged:
+        $ref: "#/components/messages/PaymentStatusChanged"
+    bindings:
+      kafka:
+        bindingVersion: 0.5.0
+        partitions: 1
 operations:
   publishPaymentStatusChanged:
     action: send
@@ -55,9 +83,72 @@ operations:
       reconciliation instead of being applied.
     messages:
       - $ref: "#/channels/paymentStatusChanged/messages/paymentStatusChanged"
-
+  deadLetterPaymentStatusChangedForOrders:
+    action: send
+    channel:
+      $ref: "#/channels/paymentStatusChangedOrderingDlq"
+    summary: The ordering consumer parks a message it can never apply, then commits its source offset.
+    messages:
+      - $ref: "#/channels/paymentStatusChangedOrderingDlq/messages/paymentStatusChangedDeadLetter"
+  replayDeadLetteredPaymentStatusChanged:
+    action: send
+    channel:
+      $ref: "#/channels/paymentStatusChangedOrderingRetry"
+    summary: An Admin republishes a dead-lettered message byte for byte, with dlq-replay-count + 1 (cmd/dlqreplay).
+    messages:
+      - $ref: "#/channels/paymentStatusChangedOrderingRetry/messages/paymentStatusChanged"
+  consumeRetriedPaymentStatusChangedForOrders:
+    action: receive
+    channel:
+      $ref: "#/channels/paymentStatusChangedOrderingRetry"
+    summary: Ordering applies replayed events like source events (same group, same deduplication on event_id).
+    messages:
+      - $ref: "#/channels/paymentStatusChangedOrderingRetry/messages/paymentStatusChanged"
 components:
   messages:
+    PaymentStatusChangedDeadLetter:
+      name: payment.status-changed.dead-letter
+      title: Dead-lettered payment status change
+      contentType: application/json
+      summary: The original key, value, and headers, unchanged, plus the dlq-* headers. The payload is not validated (it may be malformed).
+      headers:
+        type: object
+        required: [dlq-original-topic, dlq-original-partition, dlq-original-offset, dlq-consumer-group, dlq-reason, dlq-failed-at, dlq-replay-count]
+        properties:
+          event_id:
+            type: string
+            description: Copied from the original message when present.
+          dlq-original-topic:
+            type: string
+            description: Topic the message was read from (the source or the retry topic).
+          dlq-original-partition:
+            type: string
+            pattern: "^[0-9]+$"
+          dlq-original-offset:
+            type: string
+            pattern: "^[0-9]+$"
+          dlq-consumer-group:
+            type: string
+            const: ordering
+          dlq-reason:
+            type: string
+            maxLength: 256
+            description: Fixed text naming the problem; never payload values.
+          dlq-failed-at:
+            type: string
+            format: date-time
+          dlq-replay-count:
+            type: string
+            pattern: "^[0-9]+$"
+            description: How many times this message had been replayed before this dead-letter.
+      payload:
+        description: The original message value, unchanged and not validated.
+      bindings:
+        kafka:
+          bindingVersion: 0.5.0
+          key:
+            type: string
+            description: The original key (payment_id).
     PaymentStatusChanged:
       name: payment.status-changed
       title: Payment status changed

@@ -146,7 +146,7 @@ func newPublisher(cfg config.Config, log *slog.Logger, inProcess paymentevents.H
 			if m.Topic != paymentevents.Topic {
 				return nil
 			}
-			return inProcess.Handle(ctx, m.Payload)
+			return inProcess.DeliverInProcess(ctx, m.Payload)
 		}
 		return &memory.Publisher{Deliver: deliver}, httpapi.PublisherInProcess, func() {}
 	default:

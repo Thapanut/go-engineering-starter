@@ -1,4 +1,4 @@
-.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset kafka-up kafka-down kafka-consume kafka-ui webhook-demo demo docker-build
+.PHONY: help verify test test-integration lint sec contract-check tools run run-memory token db-up db-down db-reset kafka-up kafka-down kafka-consume kafka-ui dlq-replay webhook-demo demo docker-build
 
 # Local dev defaults; override via environment or .env (never commit .env).
 -include .env
@@ -45,10 +45,15 @@ db-down: ## Stop PostgreSQL (leaves Kafka running)
 db-reset: ## Destroy and recreate the database (leaves Kafka untouched)
 	docker compose rm -sfv db && docker compose up -d --wait db
 
-kafka-up: ## Start local Kafka and create the topic (then set KAFKA_BROKERS=localhost:9092)
+kafka-up: ## Start local Kafka and create the topics (then set KAFKA_BROKERS=localhost:9092)
 	docker compose up -d --wait kafka
 	docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic payments.v1.status-changed --partitions 3
+	docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+		--create --if-not-exists --topic payments.v1.status-changed.ordering.dlq --partitions 1 \
+		--config retention.ms=1209600000
+	docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+		--create --if-not-exists --topic payments.v1.status-changed.ordering.retry --partitions 1
 
 kafka-down: ## Stop local Kafka and kafka-ui (keeps its data; `docker compose rm -sf kafka` to wipe)
 	docker compose stop kafka-ui kafka
@@ -61,6 +66,9 @@ kafka-ui: kafka-up ## Start kafka-ui on http://localhost:8081 (KAFKA_UI_PORT to 
 kafka-consume: ## Tail payment events from the beginning (Ctrl+C to stop)
 	docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
 		--topic payments.v1.status-changed --from-beginning --property print.key=true --property print.headers=true
+
+dlq-replay: ## List ordering's dead-lettered events (dry run); replay: make dlq-replay ARGS="-dry-run=false" (Admin only)
+	KAFKA_BROKERS=$${KAFKA_BROKERS:-localhost:9092} go run ./cmd/dlqreplay $(ARGS)
 
 webhook-demo: ## Seed a PENDING payment and send it a signed 2C2P webhook: make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001
 	@bash scripts/dev-2c2p-webhook.sh
