@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added — Catalog module (ADR-0005, `docs/02-specs/order-flow-modules.md` step 2)
+- `internal/core/catalog` (domain, `CatalogUseCase`, `ProductRepository`, service); `GET /v1/products` now served by the catalog from PostgreSQL (`catalog.products`), memory adapter with the same sample rows for `STORE=memory`.
+- Migration `0004_catalog` (schema `catalog`); dev seed `migrations/dev/20_seed_catalog.sql` (3 active products, 1 inactive).
+- depguard: payment and catalog cores may not import another module.
+
 ### Changed — Payment collects what ordering asks for (ADR-0005, `docs/02-specs/order-flow-modules.md`)
 - Shared kernel `internal/kernel` (`Money`, `ParseDecimal`, generic errors); payment's `domain` keeps aliases. depguard keeps the kernel standard-library only.
 - `CheckoutUseCase.CreatePayment` takes `orderId`, `customerId`, and `amount` from the ordering module; payment no longer prices carts. **Removed (unreleased):** `POST /v1/payments`, `GET /v1/products` from payment, `ProductCatalog`, `domain.PriceOrder`.

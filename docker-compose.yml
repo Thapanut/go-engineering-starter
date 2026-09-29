@@ -15,6 +15,8 @@ services:
       - ./migrations/0001_payments.up.sql:/docker-entrypoint-initdb.d/10_0001_payments.up.sql:ro
       - ./migrations/0002_outbox.up.sql:/docker-entrypoint-initdb.d/11_0002_outbox.up.sql:ro
       - ./migrations/0003_payment_checkout.up.sql:/docker-entrypoint-initdb.d/12_0003_payment_checkout.up.sql:ro
+      - ./migrations/0004_catalog.up.sql:/docker-entrypoint-initdb.d/13_0004_catalog.up.sql:ro
+      - ./migrations/dev/20_seed_catalog.sql:/docker-entrypoint-initdb.d/20_seed_catalog.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app_user -d app"]
       interval: 2s

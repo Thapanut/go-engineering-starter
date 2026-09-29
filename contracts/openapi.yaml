@@ -17,6 +17,8 @@ tags:
     description: Liveness and readiness probes for the platform
   - name: webhooks
     description: Callbacks from payment providers, authenticated by signature
+  - name: catalog
+    description: Products and prices, owned by the catalog module
   - name: payments
     description: Status of the customer's payments (created by the ordering module)
   - name: demo
@@ -106,6 +108,27 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /v1/products:
+    get:
+      operationId: listProducts
+      summary: Active products with their catalog prices
+      tags: [catalog]
+      responses:
+        "200":
+          description: Catalog
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [products]
+                properties:
+                  products:
+                    type: array
+                    items: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/InternalError" }
   /v1/payments/{invoiceNo}/status:
     get:
@@ -246,6 +269,15 @@ components:
               createdAt: { type: string, format: date-time }
               publishedAt: { type: [string, "null"], format: date-time, description: null until the relay published it }
               payload: { type: object, description: "payment.status-changed payload, see contracts/asyncapi.yaml" }
+    Product:
+      type: object
+      required: [productId, name, price, priceMinor, currency]
+      properties:
+        productId: { type: string, example: CERAMIC-MUG }
+        name: { type: string }
+        price: { $ref: "#/components/schemas/DecimalAmount" }
+        priceMinor: { $ref: "#/components/schemas/AmountMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
     DecimalAmount:
       type: string
       pattern: "^\\d{1,15}\\.\\d{2}$"

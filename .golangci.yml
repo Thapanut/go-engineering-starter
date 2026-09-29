@@ -44,6 +44,24 @@ linters:
           deny:
             - pkg: github.com/Thapanut/go-engineering-starter/internal
               desc: "the shared kernel depends on the standard library only (ADR-0005)"
+        payment-is-a-separate-module:
+          files:
+            - "**/internal/core/payment/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/core/catalog
+              desc: "modules talk through ports and adapters, never directly (ADR-0005)"
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/core/ordering
+              desc: "modules talk through ports and adapters, never directly (ADR-0005)"
+        catalog-is-a-separate-module:
+          files:
+            - "**/internal/core/catalog/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/core/payment
+              desc: "modules talk through ports and adapters, never directly (ADR-0005)"
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/core/ordering
+              desc: "modules talk through ports and adapters, never directly (ADR-0005)"
         adapters-do-not-cross:
           files:
             - "**/internal/adapter/inbound/**"
