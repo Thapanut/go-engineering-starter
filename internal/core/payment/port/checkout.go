@@ -3,7 +3,7 @@ package port
 import (
 	"context"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
 )
 
 // CreatePaymentCommand asks payment to collect an amount for an order. It comes

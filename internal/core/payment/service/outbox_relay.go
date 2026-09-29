@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 )
 
 // OutboxRelay publishes outbox messages to the broker (ADR-0004).

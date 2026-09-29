@@ -34,9 +34,11 @@ If these conflict: contracts > ADR > spec > architecture doc > your assumptions.
 
 - Go 1.26+ (toolchain pinned in `go.mod`), **Fiber v2**, PostgreSQL via **GORM** (ADR-0003), Kafka, Redis; Angular frontend
 - **Hexagonal architecture (ADR-0002)** — dependencies point inward only:
-  - `internal/core/domain` entities, value objects, errors — stdlib only
-  - `internal/core/port` inbound (use-case) and outbound (repository, tx, clock, id) interfaces
-  - `internal/core/service` use cases; depend on ports only
+  - `internal/core/<module>/` one hexagon inside per module (`payment`, `catalog`, `ordering`; ADR-0005):
+    - `domain` entities, value objects, errors — stdlib + `internal/kernel` only
+    - `port` inbound (use-case) and outbound (repository, tx, clock, id) interfaces
+    - `service` use cases; depend on ports only
+  - `internal/kernel` shared kernel (`Money`, generic errors) — stdlib only
   - `internal/adapter/inbound/*` (HTTP) → call inbound ports; `internal/adapter/outbound/*` (postgres, memory) → implement outbound ports
   - `cmd/<app>` is the only composition root; `internal/platform/*` holds config/logging/auth
   - Enforced by `depguard` in `.golangci.yml`; a violation fails `make lint`

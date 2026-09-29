@@ -12,9 +12,9 @@ import (
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/memory"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/system"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/twoc2p"
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
-	"github.com/Thapanut/go-engineering-starter/internal/core/service"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/service"
 )
 
 // Synthetic test values only.

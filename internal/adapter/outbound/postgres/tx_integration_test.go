@@ -13,7 +13,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 )
 
 func setup(t *testing.T) (*TxManager, *gorm.DB) {

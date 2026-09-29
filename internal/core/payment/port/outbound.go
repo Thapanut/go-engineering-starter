@@ -1,6 +1,6 @@
 // Package port defines the interfaces of the hexagon.
 //
-// Inbound ports (use cases) are implemented by internal/core/service and called by
+// Inbound ports (use cases) are implemented by internal/core/payment/service and called by
 // driving adapters (HTTP, gRPC, consumers). Put each feature's inbound interface in
 // its own file, e.g. port/<feature>.go.
 //

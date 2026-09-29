@@ -12,7 +12,7 @@ import (
 
 	kafkago "github.com/segmentio/kafka-go"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 )
 
 // Publisher writes outbox messages to Kafka.

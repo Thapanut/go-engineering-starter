@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 )
 
 // respCodeSuccess is 2C2P's success code. Every other code is treated as FAILED

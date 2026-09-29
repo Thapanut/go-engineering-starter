@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
 )
 
 // paymentModel is the GORM persistence model for the payments table. It stays

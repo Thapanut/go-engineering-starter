@@ -8,10 +8,12 @@ Base project สำหรับ Go service แบบ **Hexagonal (Ports & Adapte
 cmd/api/                         composition root: อ่าน config, เลือก adapter, wire เข้า core
 cmd/devtoken/                    ออก JWT สำหรับ dev
 internal/
-  core/                          business rule ทั้งหมด — ไม่ import framework/DB/adapter
-    domain/                        entity, value object (Money = int64 minor units), domain errors
-    port/                          inbound (use case) และ outbound (TxManager, repositories, Clock, IDGenerator)
-    service/                       implementation ของ use case
+  kernel/                        shared kernel: Money (int64 minor units), generic errors — stdlib only
+  core/                          business rule ทั้งหมด — ไม่ import framework/DB/adapter (ADR-0005: 1 โฟลเดอร์ต่อ module)
+    payment/                       module payment
+      domain/                        entity, value object, domain errors
+      port/                          inbound (use case) และ outbound (TxManager, repositories, Clock, IDGenerator)
+      service/                       implementation ของ use case
   adapter/
     inbound/httpapi/               Fiber v2: Module ต่อ feature, middleware (auth, trace id, timeout, recovery),
                                    body limit, strict JSON decode, central ErrorHandler → contract error code
@@ -27,9 +29,9 @@ contracts/openapi.yaml           API truth
 - เปลี่ยน DB หรือเพิ่ม gRPC/Kafka consumer = เพิ่ม adapter ใหม่ ไม่ต้องแตะ core
 
 ## เพิ่ม feature ใหม่
-1. `domain/` — entity, value object, error ของ feature
-2. `port/<feature>.go` — inbound interface (use case) และ outbound repository interface; เพิ่ม field ใน `port.Repositories`
-3. `service/` — implement use case ด้วย `TxManager.WithinTx` + unit test กับ memory adapter
+1. `core/<module>/domain/` — entity, value object, error ของ feature
+2. `core/<module>/port/<feature>.go` — inbound interface (use case) และ outbound repository interface; เพิ่ม field ใน `port.Repositories`
+3. `core/<module>/service/` — implement use case ด้วย `TxManager.WithinTx` + unit test กับ memory adapter
 4. `adapter/outbound/postgres` (GORM model ของ adapter เอง ไม่ใส่ tag ใน domain) + `memory` — implement repository; migration ใหม่ใน `migrations/` (ไม่ใช้ `AutoMigrate`)
 5. `adapter/inbound/httpapi` — handler type ที่ implement `Module`, handler `return err` แล้ว map error ใน `errors.go`
 6. `cmd/api/main.go` — wire service + ส่ง module เข้า `NewApp`

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
 )
 
 // Synthetic test values only.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 )
 
 // CheckoutService implements port.CheckoutUseCase and port.PaymentEventsUseCase.

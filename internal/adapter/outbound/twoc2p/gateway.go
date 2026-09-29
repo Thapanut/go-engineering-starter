@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 )
 
 // StubGateway implements port.PaymentGateway without calling 2C2P. It stands in

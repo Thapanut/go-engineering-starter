@@ -7,7 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
 )
 
 // errorBody is the contract's Error schema.

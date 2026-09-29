@@ -42,9 +42,9 @@ sequenceDiagram
   O->>O: dedupe event_id, check amount, order → PAID (one tx), commit offset
   B->>O: next poll → PAID → "Order Confirmed"
 ```
-- **Module layout.** `internal/catalog/{domain,port,service,adapter/{postgres,memory}}`, `internal/ordering/{domain,port,service,adapter/{postgres,memory,catalogclient,paymentclient,paymentevents}}`, payment stays in `internal/core` + `internal/adapter/*`. HTTP handlers for all modules stay in `internal/adapter/inbound/httpapi` (shared plumbing), one file per module.
+- **Module layout (owner, 2026-09-29).** `internal/core` stays the framework-free inside of the hexagon and holds one package tree per module: `internal/core/{payment,catalog,ordering}/{domain,port,service}`. Adapters stay in `internal/adapter`: HTTP handlers in `inbound/httpapi` (one file per module); repositories in `outbound/postgres` and `outbound/memory` (one file per module, each touching only its module's tables); ordering's clients in `outbound/ordering/{catalogclient,paymentclient}`; the payment-event consumer in `outbound/kafka` (plus in-process delivery).
 - **Shared kernel.** `internal/kernel`: `Money` and the generic errors, standard library only (ADR-0005). Every module may import it; it imports no module.
-- **Boundaries (depguard).** `internal/ordering/{domain,port,service}` import nothing from other modules. Only `internal/ordering/adapter/{catalogclient,paymentclient}` may import `internal/catalog/port` and `internal/core/port`. `internal/catalog/**` and `internal/core/**` never import `internal/ordering`. Catalog imports no other module.
+- **Boundaries (depguard).** No module under `internal/core/<module>` imports another module. Only `internal/adapter/outbound/ordering/{catalogclient,paymentclient}` may import `internal/core/catalog/port` and `internal/core/payment/port`.
 - **Transactions.** Each module has its own `TxManager` over the same connection pool. Placing an order is two local transactions around the payment call (store order → start payment → store invoiceNo). No distributed transaction.
 - **Order lifecycle.** `AWAITING_PAYMENT → PAID | PAYMENT_FAILED`; final states never change. Lines snapshot product name and unit price at order time, so later price changes do not alter orders.
 - **Event handling.** One ordering transaction: insert `processed_events(event_id)` (conflict → duplicate, skip), load order by `order_id` with `FOR UPDATE`, check amount and currency against the order total, apply the transition. The Kafka offset is committed only after the transaction commits (at-least-once). Unknown `order_id` (e.g. payments seeded by `make webhook-demo`) and amount mismatches are recorded as processed and logged for reconciliation, so a poison message cannot block the partition.
@@ -75,7 +75,7 @@ sequenceDiagram
 | AC-11 | `STORE=memory`, no Kafka | A payment becomes SUCCESS | The in-process publisher delivers the event and the order becomes `PAID` |
 | AC-12 | `KAFKA_BROKERS` set | The consumer handler fails | The offset is not committed; the event is processed again later |
 | AC-13 | Any | `POST /v1/payments` | 404 (route removed); payments are created only by ordering |
-| AC-14 | Any | `make lint` | Fails if ordering's core imports another module, or catalog/payment import ordering |
+| AC-14 | Any | `make lint` | Fails if a module under `internal/core` imports another module |
 | AC-15 | Demo enabled | Checkout, then Simulate Successful Payment | The page shows payment SUCCESS first, then order PAID and "Order Confirmed"; the debug box shows the order, payment, webhook, and Kafka hops |
 
 ## 6. Non-functional
@@ -94,11 +94,12 @@ sequenceDiagram
 | R: disputes over what was ordered | M | M | Lines snapshot name and unit price | AC-02 |
 
 ## 8. Open questions
-- [ ] Rename `internal/core` to `internal/payment` so the three modules read alike? Pure move, large diff; recommended as a separate commit after this spec.
+- [x] Layout: owner chose `internal/core/<module>` (payment moved to `internal/core/payment`, 2026-09-29).
 - [ ] Should ordering retry starting a payment for an order left `AWAITING_PAYMENT` without an invoice (AC-04), or let the customer place a new order?
 - [ ] Should ordering publish its own `order.confirmed` event for fulfilment?
 
 ## 9. Delivery plan (one commit each, `make verify` green after each)
+0. **refactor:** move payment's core to `internal/core/payment` (pure move).
 1. **refactor(payment):** extract `internal/kernel`; `CreatePayment(orderId, customerId, amount)`; remove the catalog and `POST /v1/payments` from payment; `order_id` in the event. The demo page is broken from here until commit 5.
 2. **feat(catalog):** module, migration `0004`, dev seed, `GET /v1/products` from PostgreSQL (memory adapter for `STORE=memory`).
 3. **feat(ordering):** module, migration `0005`, `POST/GET /v1/orders`, catalog and payment client adapters, depguard rules.

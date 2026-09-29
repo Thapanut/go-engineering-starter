@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
 )
 
 // OutboxMessage is an encoded event waiting in the outbox to be published.

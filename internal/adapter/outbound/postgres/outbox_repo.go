@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/events"
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
-	"github.com/Thapanut/go-engineering-starter/internal/core/port"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 )
 
 // outboxModel is the GORM persistence model for the outbox table (ADR-0004).

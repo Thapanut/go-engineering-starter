@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
+	"github.com/Thapanut/go-engineering-starter/internal/core/payment/domain"
 )
 
 func TestStubGatewayIssuesUniqueStubSessions(t *testing.T) {
