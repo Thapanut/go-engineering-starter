@@ -530,9 +530,17 @@
     }
     state.polls++;
     if (o.status !== 200 || p.status !== 200) {
-      log("Error", `poll → order ${o.status}, payment ${p.status}`);
-      showConn(`Status check failed (order HTTP ${o.status}, payment HTTP ${p.status}). Polling stopped; reload to retry.`);
-      stopPolling();
+      const trace = [o, p].map((r) => r.data && r.data.traceId).filter(Boolean).join(", ");
+      log("Error", `poll → order ${o.status}, payment ${p.status}${trace ? ` (traceId ${trace})` : ""}`);
+      // 4xx will not change by retrying (expired token, not the owner, unknown id);
+      // 5xx, 408, and 429 are the server's problem and usually pass: keep polling.
+      const final = [o.status, p.status].some((s) => s >= 400 && s < 500 && s !== 408 && s !== 429);
+      if (final) {
+        showConn(`Status check failed (order HTTP ${o.status}, payment HTTP ${p.status}). Polling stopped; reload to retry.`);
+        stopPolling();
+      } else {
+        showConn(`Server error (order HTTP ${o.status}, payment HTTP ${p.status}). Retrying every ${POLL_MS / 1000} s…`);
+      }
       return;
     }
     showConn("");
