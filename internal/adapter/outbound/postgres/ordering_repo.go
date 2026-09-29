@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	ordering "github.com/Thapanut/go-engineering-starter/internal/core/ordering/domain"
 	orderingport "github.com/Thapanut/go-engineering-starter/internal/core/ordering/port"
@@ -53,7 +54,7 @@ func NewOrderingTxManager(db *gorm.DB) *OrderingTxManager { return &OrderingTxMa
 // WithinTx commits if fn succeeds and rolls back otherwise (including on panic).
 func (m *OrderingTxManager) WithinTx(ctx context.Context, fn func(context.Context, orderingport.Repositories) error) error {
 	return m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return fn(ctx, orderingport.Repositories{Orders: orderRepo{db: tx}})
+		return fn(ctx, orderingport.Repositories{Orders: orderRepo{db: tx}, Events: processedEventRepo{db: tx}})
 	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 }
 
@@ -80,8 +81,18 @@ func (r orderRepo) Create(ctx context.Context, o ordering.Order) error {
 }
 
 func (r orderRepo) Get(ctx context.Context, id string) (ordering.Order, error) {
+	return r.get(ctx, r.db.WithContext(ctx), id)
+}
+
+// GetForUpdate locks the order row (SELECT … FOR UPDATE) so concurrent deliveries
+// of payment events for one order are serialized (AC-07).
+func (r orderRepo) GetForUpdate(ctx context.Context, id string) (ordering.Order, error) {
+	return r.get(ctx, r.db.WithContext(ctx).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}), id)
+}
+
+func (r orderRepo) get(ctx context.Context, q *gorm.DB, id string) (ordering.Order, error) {
 	var m orderModel
-	err := r.db.WithContext(ctx).Where("id = ?", id).Take(&m).Error
+	err := q.Where("id = ?", id).Take(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ordering.Order{}, fmt.Errorf("order: %w", kernel.ErrNotFound)
 	}
@@ -105,6 +116,40 @@ func (r orderRepo) SetInvoiceNo(ctx context.Context, id, invoiceNo string, at ti
 		return fmt.Errorf("order: %w", kernel.ErrNotFound)
 	}
 	return nil
+}
+
+// UpdateStatus updates only an order still awaiting payment, a second guard next
+// to the row lock and the domain's final-state rule.
+func (r orderRepo) UpdateStatus(ctx context.Context, o ordering.Order) error {
+	res := r.db.WithContext(ctx).Model(&orderModel{}).
+		Where("id = ? AND status = ?", o.ID, string(ordering.AwaitingPayment)).
+		Updates(map[string]any{"status": string(o.Status), "updated_at": o.UpdatedAt})
+	if res.Error != nil {
+		return fmt.Errorf("update order status: %w", res.Error)
+	}
+	if res.RowsAffected != 1 {
+		return fmt.Errorf("order is no longer awaiting payment: %w", kernel.ErrConflict)
+	}
+	return nil
+}
+
+type processedEventModel struct {
+	EventID     string    `gorm:"column:event_id;primaryKey"`
+	ProcessedAt time.Time `gorm:"column:processed_at"`
+}
+
+func (processedEventModel) TableName() string { return "ordering.processed_events" }
+
+type processedEventRepo struct{ db *gorm.DB }
+
+// MarkProcessed inserts the event id; an existing row means a redelivery.
+func (r processedEventRepo) MarkProcessed(ctx context.Context, eventID string, at time.Time) (bool, error) {
+	res := r.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&processedEventModel{EventID: eventID, ProcessedAt: at})
+	if res.Error != nil {
+		return false, fmt.Errorf("insert processed event: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
 }
 
 func (m orderModel) toDomain(lines []orderLineModel) ordering.Order {

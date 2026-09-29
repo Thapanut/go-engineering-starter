@@ -54,13 +54,25 @@ type OrderRepository interface {
 	Create(ctx context.Context, o domain.Order) error
 	// Get returns kernel.ErrNotFound if there is no such order.
 	Get(ctx context.Context, id string) (domain.Order, error)
+	// GetForUpdate is Get with a row lock until the transaction ends.
+	GetForUpdate(ctx context.Context, id string) (domain.Order, error)
 	// SetInvoiceNo records the payment started for an order.
 	SetInvoiceNo(ctx context.Context, id, invoiceNo string, at time.Time) error
+	// UpdateStatus persists an AWAITING_PAYMENT → final transition. It must only
+	// update an order still awaiting payment and returns kernel.ErrConflict otherwise.
+	UpdateStatus(ctx context.Context, o domain.Order) error
+}
+
+// ProcessedEvents remembers which events were applied (outbound port).
+type ProcessedEvents interface {
+	// MarkProcessed records eventID and reports whether this is its first time.
+	MarkProcessed(ctx context.Context, eventID string, at time.Time) (first bool, err error)
 }
 
 // Repositories are ordering's repositories bound to one unit of work.
 type Repositories struct {
 	Orders OrderRepository
+	Events ProcessedEvents
 }
 
 // TxManager runs fn in one ordering transaction.

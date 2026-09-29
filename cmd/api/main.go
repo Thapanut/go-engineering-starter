@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/inbound/httpapi"
+	"github.com/Thapanut/go-engineering-starter/internal/adapter/inbound/paymentevents"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/kafka"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/memory"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/ordering/catalogclient"
@@ -63,17 +65,29 @@ func run() error {
 	// Ordering reaches catalog and payment only through its client adapters (ADR-0005).
 	orders := orderingservice.NewOrderService(st.orders, catalogclient.Client{Catalog: catalog},
 		paymentclient.Client{Payments: checkout}, system.Clock{}, system.UUIDGenerator{})
+	// Ordering learns payment outcomes from payment.status-changed: from Kafka, or
+	// in process with STORE=memory and no brokers.
+	paymentEvents := paymentevents.Handler{UseCase: orderingservice.NewPaymentEventService(st.orders, system.Clock{}), Log: log}
 
-	// The outbox relay runs until shutdown; it must stop before the store closes.
-	relayDone := make(chan struct{})
-	pub, pubKind, closePub := newPublisher(cfg, log)
+	// The outbox relay and the event consumer run until shutdown; they must stop
+	// before the store closes.
+	var workers sync.WaitGroup
+	pub, pubKind, closePub := newPublisher(cfg, log, paymentEvents)
 	if pub != nil {
 		relay := service.NewOutboxRelay(st.tx, pub, system.Clock{}, log, outboxBatchSize)
-		go func() { defer close(relayDone); relay.Run(ctx, cfg.OutboxPollInterval) }()
-	} else {
-		close(relayDone)
+		workers.Go(func() { relay.Run(ctx, cfg.OutboxPollInterval) })
 	}
-	defer func() { stop(); <-relayDone; closePub() }()
+	closeConsumer := func() {}
+	if len(cfg.KafkaBrokers) > 0 {
+		consumer := paymentevents.NewConsumer(cfg.KafkaBrokers, paymentEvents)
+		workers.Go(func() { consumer.Run(ctx) })
+		closeConsumer = func() {
+			if err := consumer.Close(); err != nil {
+				log.Warn("close kafka consumer", slog.String("error", err.Error()))
+			}
+		}
+	}
+	defer func() { stop(); workers.Wait(); closeConsumer(); closePub() }()
 
 	public := []httpapi.PublicModule{httpapi.WebhookModule{UseCase: webhooks}}
 	modules := []httpapi.Module{httpapi.CatalogModule{UseCase: catalog}, httpapi.OrderModule{UseCase: orders},
@@ -117,7 +131,7 @@ const outboxBatchSize = 100
 // newPublisher selects where outbox messages go and names the choice for the demo
 // page. Without KAFKA_BROKERS the Postgres relay is disabled and events wait safely
 // in the outbox until Kafka is configured.
-func newPublisher(cfg config.Config, log *slog.Logger) (port.MessagePublisher, string, func()) {
+func newPublisher(cfg config.Config, log *slog.Logger, inProcess paymentevents.Handler) (port.MessagePublisher, string, func()) {
 	switch {
 	case len(cfg.KafkaBrokers) > 0:
 		p := kafka.NewPublisher(cfg.KafkaBrokers)
@@ -128,7 +142,13 @@ func newPublisher(cfg config.Config, log *slog.Logger) (port.MessagePublisher, s
 		}
 	case cfg.Store == config.StoreMemory:
 		log.Warn("KAFKA_BROKERS not set; publishing events in-process only (STORE=memory)")
-		return &memory.Publisher{}, httpapi.PublisherInProcess, func() {}
+		deliver := func(ctx context.Context, m port.OutboxMessage) error {
+			if m.Topic != paymentevents.Topic {
+				return nil
+			}
+			return inProcess.Handle(ctx, m.Payload)
+		}
+		return &memory.Publisher{Deliver: deliver}, httpapi.PublisherInProcess, func() {}
 	default:
 		log.Warn("KAFKA_BROKERS not set; outbox relay disabled, events stay in the outbox")
 		return nil, httpapi.PublisherDisabled, func() {}

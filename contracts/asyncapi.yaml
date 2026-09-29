@@ -9,7 +9,10 @@ info:
     same `event_id`. Consumers must deduplicate on `event_id`. Messages with the same
     key (the payment id) go to the same partition, so they are consumed in order.
 
-    Spec: docs/02-specs/payment-events-outbox.md
+    The ordering module of this same service consumes them (consumer group `ordering`,
+    ADR-0005) to mark orders PAID or PAYMENT_FAILED.
+
+    Specs: docs/02-specs/payment-events-outbox.md, docs/02-specs/order-flow-modules.md
 defaultContentType: application/json
 
 servers:
@@ -38,6 +41,18 @@ operations:
     channel:
       $ref: "#/channels/paymentStatusChanged"
     summary: Publish payment.status-changed after a payment transition commits.
+    messages:
+      - $ref: "#/channels/paymentStatusChanged/messages/paymentStatusChanged"
+  consumePaymentStatusChangedForOrders:
+    action: receive
+    channel:
+      $ref: "#/channels/paymentStatusChanged"
+    summary: Ordering applies the payment outcome to its order (consumer group "ordering").
+    description: |
+      At-least-once: the offset is committed after the ordering transaction commits;
+      event_id is recorded in ordering.processed_events in that transaction. The amount
+      must equal the order total, otherwise the event is recorded and logged for
+      reconciliation instead of being applied.
     messages:
       - $ref: "#/channels/paymentStatusChanged/messages/paymentStatusChanged"
 

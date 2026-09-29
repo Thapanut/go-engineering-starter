@@ -70,7 +70,13 @@ func (r outboxRepo) ListByKey(_ context.Context, key string) ([]port.OutboxRecor
 
 // Publisher is an in-process port.MessagePublisher for STORE=memory and tests: it
 // keeps published messages instead of sending them to a broker.
+//
+// With Deliver set, it also hands every message to an in-process consumer (the
+// ordering module with STORE=memory), standing in for Kafka. A Deliver error fails
+// the publish, so the relay retries it like a broker error.
 type Publisher struct {
+	Deliver func(ctx context.Context, m port.OutboxMessage) error
+
 	mu   sync.Mutex
 	msgs []port.OutboxMessage
 }
@@ -81,6 +87,13 @@ var _ port.MessagePublisher = (*Publisher)(nil)
 func (p *Publisher) Publish(ctx context.Context, msgs []port.OutboxMessage) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if p.Deliver != nil {
+		for _, m := range msgs {
+			if err := p.Deliver(ctx, m); err != nil {
+				return fmt.Errorf("deliver in-process: %w", err)
+			}
+		}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()

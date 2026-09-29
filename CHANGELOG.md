@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added — Ordering consumes payment events (ADR-0005, `docs/02-specs/order-flow-modules.md` step 4)
+- `PaymentEventHandler` (`service.PaymentEventService`): one ordering transaction records `event_id` in `ordering.processed_events`, locks the order, checks the amount against the total, and moves it to `PAID` or `PAYMENT_FAILED`; unknown orders and mismatches are recorded and logged, not retried forever.
+- Driving adapter `inbound/paymentevents`: decodes `payment.status-changed`; Kafka consumer group `ordering` (commit after success, retry with backoff) when `KAFKA_BROKERS` is set; with `STORE=memory` the in-process `memory.Publisher.Deliver` calls it instead.
+- AsyncAPI documents the `ordering` consumer.
+
 ### Added — Ordering module (ADR-0005, `docs/02-specs/order-flow-modules.md` step 3)
 - `internal/core/ordering`: `Order` (`AWAITING_PAYMENT → PAID | PAYMENT_FAILED`) with lines that snapshot name and unit price, `OrderUseCase`, outbound ports `PriceSource` and `PaymentStarter`, own `TxManager`.
 - `POST /v1/orders` (`placeOrder`: items only; priced with the catalog; payment started for the total) and `GET /v1/orders/{orderId}` (`getOrder`, owner only).

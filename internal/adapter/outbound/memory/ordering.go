@@ -16,14 +16,17 @@ import (
 // copy-on-write transactions as Store. It shares nothing with Store: each module
 // owns its data (ADR-0005).
 type OrderStore struct {
-	mu     sync.Mutex
-	orders map[string]ordering.Order
+	mu        sync.Mutex
+	orders    map[string]ordering.Order
+	processed map[string]time.Time // event id → processed at
 }
 
 var _ orderingport.TxManager = (*OrderStore)(nil)
 
 // NewOrderStore returns an empty store.
-func NewOrderStore() *OrderStore { return &OrderStore{orders: map[string]ordering.Order{}} }
+func NewOrderStore() *OrderStore {
+	return &OrderStore{orders: map[string]ordering.Order{}, processed: map[string]time.Time{}}
+}
 
 // WithinTx runs fn against a private copy and commits it only if fn succeeds.
 func (s *OrderStore) WithinTx(ctx context.Context, fn func(context.Context, orderingport.Repositories) error) error {
@@ -32,11 +35,11 @@ func (s *OrderStore) WithinTx(ctx context.Context, fn func(context.Context, orde
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	work := maps.Clone(s.orders)
-	if err := fn(ctx, orderingport.Repositories{Orders: orderRepo{orders: work}}); err != nil {
+	orders, processed := maps.Clone(s.orders), maps.Clone(s.processed)
+	if err := fn(ctx, orderingport.Repositories{Orders: orderRepo{orders: orders}, Events: processedEvents(processed)}); err != nil {
 		return err
 	}
-	s.orders = work
+	s.orders, s.processed = orders, processed
 	return nil
 }
 
@@ -72,4 +75,29 @@ func (r orderRepo) SetInvoiceNo(_ context.Context, id, invoiceNo string, at time
 	o.InvoiceNo, o.UpdatedAt = invoiceNo, at
 	r.orders[id] = o
 	return nil
+}
+
+// GetForUpdate needs no lock: OrderStore serializes transactions.
+func (r orderRepo) GetForUpdate(ctx context.Context, id string) (ordering.Order, error) {
+	return r.Get(ctx, id)
+}
+
+func (r orderRepo) UpdateStatus(_ context.Context, o ordering.Order) error {
+	cur, ok := r.orders[o.ID]
+	if !ok || cur.Status != ordering.AwaitingPayment {
+		return kernel.ErrConflict
+	}
+	cur.Status, cur.UpdatedAt = o.Status, o.UpdatedAt
+	r.orders[o.ID] = cur
+	return nil
+}
+
+type processedEvents map[string]time.Time
+
+func (p processedEvents) MarkProcessed(_ context.Context, eventID string, at time.Time) (bool, error) {
+	if _, seen := p[eventID]; seen {
+		return false, nil
+	}
+	p[eventID] = at
+	return true, nil
 }
