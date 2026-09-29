@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed — Demo page follows the order across modules (`docs/02-specs/order-flow-modules.md` step 5)
+- `/demo` checks out through `POST /v1/orders`, polls `GET /v1/orders/{orderId}` and the payment status, and shows *Payment Received — confirming your order…* while the payment event travels through Kafka; the debug box adds `[Order Service]`.
+- `docs/02-specs/frontend-integration-flow.md` sequence diagram now shows ordering → catalog → payment → 2C2P → Kafka → ordering.
+
 ### Added — Ordering consumes payment events (ADR-0005, `docs/02-specs/order-flow-modules.md` step 4)
 - `PaymentEventHandler` (`service.PaymentEventService`): one ordering transaction records `event_id` in `ordering.processed_events`, locks the order, checks the amount against the total, and moves it to `PAID` or `PAYMENT_FAILED`; unknown orders and mismatches are recorded and logged, not retried forever.
 - Driving adapter `inbound/paymentevents`: decodes `payment.status-changed`; Kafka consumer group `ordering` (commit after success, retry with backoff) when `KAFKA_BROKERS` is set; with `STORE=memory` the in-process `memory.Publisher.Deliver` calls it instead.

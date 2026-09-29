@@ -57,14 +57,14 @@ make webhook-demo                         # terminal 3: สร้าง payment 
 make webhook-demo                         # ส่งซ้ำ → DUPLICATE, ไม่มี event ใหม่
 make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001   # payment ใหม่ → FAILED
 ```
-ถ้า DB ถูกสร้างไว้ก่อนมี `migrations/0002_outbox` หรือ `0003_payment_checkout` ให้ `make db-reset` ก่อน (ลบข้อมูล dev)
+ถ้า DB ถูกสร้างไว้ก่อน migration ล่าสุด (`0002`–`0005`, seed ใน `migrations/dev/`) ให้ `make db-reset` ก่อน (ลบข้อมูล dev)
 
 หน้า demo checkout → webhook → polling ในเบราว์เซอร์ ([flow](docs/02-specs/frontend-integration-flow.md)):
 ```bash
 make demo STORE=memory                    # ไม่ต้องใช้ Docker; เปิด URL ที่ print ออกมา (http://localhost:8080/demo#…)
 make demo                                 # หรือใช้ PostgreSQL; เพิ่ม KAFKA_BROKERS=localhost:9092 หลัง `make kafka-up`
 ```
-เลือกสินค้า → **Checkout with 2C2P** (backend คิดราคาเอง) → หน้า mock 2C2P → **Simulate Successful/Failed Payment** → หน้า return ขึ้น *Verifying…* และ poll ทุก 2 วินาที ขณะที่ webhook (เซ็น HS256) ตามมาใน 3 วินาที → **Payment Successful! Order Confirmed**; กล่อง Live debug แสดง DB status, webhook ล่าสุด และ event ใน outbox/Kafka
+เลือกสินค้า (จาก `catalog.products`) → **Checkout with 2C2P** → ordering คิดราคากับ catalog แล้วสั่ง payment → หน้า mock 2C2P → **Simulate Successful/Failed Payment** → หน้า return poll order + payment ทุก 2 วินาที; webhook (เซ็น HS256) มาใน 3 วินาที → payment SUCCESS → event ผ่าน Kafka → ordering → order **PAID** ("Payment Successful! Order Confirmed"); กล่อง Live debug แสดง order, payment, webhook และ outbox/Kafka ([ADR-0005](docs/01-architecture/adr/0005-modular-monolith-catalog-ordering-payment.md))
 JWT และ 2C2P sandbox key ส่งไปใน URL fragment (ไม่ถูกส่งไป server); `/demo` เปิดเฉพาะเมื่อ `DEMO_UI_ENABLED=true`
 
 ## เริ่มโปรเจกต์ใหม่จาก template

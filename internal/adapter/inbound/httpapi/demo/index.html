@@ -10,12 +10,15 @@
   the dev JWT and the 2C2P sandbox key arrive in the URL fragment, are kept in
   sessionStorage, and the fragment is removed from the address bar.
 
-  Flow: catalog/cart → POST /v1/payments (items only; the backend prices them) →
-  mock 2C2P hosted payment page (modal) → two callbacks, as with the real gateway:
-    1. frontend return: the browser goes to /demo/return?invoiceNo=… and polls
-       GET /v1/payments/{invoiceNo}/status every 2 s (it never trusts the redirect);
+  Flow (ADR-0005): catalog → POST /v1/orders (items only; ordering prices them with
+  the catalog and asks payment to collect the total) → mock 2C2P hosted payment page
+  (modal) → two callbacks, as with the real gateway:
+    1. frontend return: the browser goes to /demo/return?orderId=…&invoiceNo=… and
+       polls the order and the payment every 2 s (it never trusts the redirect);
     2. server-to-server webhook: "2C2P" (this page) POSTs a JWT signed HS256 with the
        merchant secret to /webhooks/2c2p a few seconds later.
+  The payment event then travels payment → outbox → Kafka → ordering, which marks
+  the order PAID: the page shows payment SUCCESS a moment before the order is PAID.
 -->
 <style>
   :root {
@@ -85,7 +88,7 @@
   ol#log { list-style: none; margin: 12px 0 0; padding: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 340px; overflow-y: auto; }
   ol#log li { border-bottom: 1px dashed var(--line); padding: 3px 0; word-break: break-word; }
   ol#log .t { color: var(--muted); margin-right: 6px; }
-  .tag-db { color: var(--accent); } .tag-wh { color: var(--wait); } .tag-kafka { color: var(--ok); } .tag-err { color: var(--bad); } .tag-ui { color: var(--muted); }
+  .tag-order { color: #7a3fd6; } .tag-db { color: var(--accent); } .tag-wh { color: var(--wait); } .tag-kafka { color: var(--ok); } .tag-err { color: var(--bad); } .tag-ui { color: var(--muted); }
 
   /* Mock 2C2P gateway modal */
   .backdrop { position: fixed; inset: 0; background: rgba(10, 14, 22, .55); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
@@ -103,7 +106,7 @@
 <main>
   <header>
     <h1>2C2P Checkout Demo</h1>
-    <p class="sub">Cart → <code>POST /v1/payments</code> → mock 2C2P page → frontend return + server-to-server webhook → poll <code>GET /v1/payments/{invoiceNo}/status</code></p>
+    <p class="sub">Cart → <code>POST /v1/orders</code> (ordering → catalog → payment) → mock 2C2P page → frontend return + webhook → payment event via Kafka → ordering → poll <code>GET /v1/orders/{orderId}</code></p>
   </header>
   <div class="alert" id="alert" role="alert"></div>
 
@@ -122,13 +125,13 @@
           <tfoot><tr><td colspan="2">Total</td><td class="num" id="cart-total">0.00 THB</td></tr></tfoot>
         </table>
         <div class="cart-actions">
-          <span class="hint">The browser sends only product ids and quantities; the backend prices the order.</span>
+          <span class="hint">The browser sends only product ids and quantities; ordering prices them with the catalog.</span>
           <button id="checkout" disabled>Checkout with 2C2P</button>
         </div>
       </div>
     </div>
 
-    <!-- View 2: frontend return URL (/demo/return?invoiceNo=…) -->
+    <!-- View 2: frontend return URL (/demo/return?orderId=…&invoiceNo=…) -->
     <div id="view-return" class="card" hidden>
       <h2>Order status</h2>
       <div class="result PENDING" id="result">
@@ -137,11 +140,11 @@
         <p id="result-text">Verifying your payment with 2C2P…</p>
       </div>
       <dl class="facts">
-        <dt>Invoice No</dt><dd class="mono" id="r-invoice">–</dd>
         <dt>Order</dt><dd class="mono" id="r-order">–</dd>
+        <dt>Invoice No</dt><dd class="mono" id="r-invoice">–</dd>
         <dt>Amount</dt><dd id="r-amount">–</dd>
       </dl>
-      <p class="hint">This page was opened by the gateway's frontend redirect, which the shop never trusts: the status comes only from the backend, which learns it from the signed server-to-server webhook.</p>
+      <p class="hint">This page was opened by the gateway's frontend redirect, which the shop never trusts: the status comes only from the backend: payment learns it from the signed webhook, and ordering from payment's event.</p>
       <div class="cart-actions"><span></span><button id="continue" class="ghost">Continue shopping</button></div>
     </div>
   </section>
@@ -149,6 +152,7 @@
   <!-- Debug box -->
   <aside class="card" aria-live="polite">
     <h2>Live debug</h2>
+    <div class="row"><b>[Order Service]</b><span id="dbg-order">–</span></div>
     <div class="row"><b>[DB Status]</b><span id="dbg-db">–</span></div>
     <div class="row"><b>[Last Webhook Received]</b><span id="dbg-wh">–</span></div>
     <div class="row"><b>[Kafka Outbox Event]</b><span id="dbg-kafka">–</span></div>
@@ -210,7 +214,8 @@
   const state = {
     products: [],
     cart: new Map(),     // productId → quantity
-    payment: null,       // POST /v1/payments response
+    order: null,         // POST /v1/orders response
+    lastOrderStatus: null,
     timer: null,
     polls: 0,
     lastStatus: null,
@@ -225,7 +230,7 @@
   }
 
   function log(tag, text) {
-    const cls = { "DB": "tag-db", "Webhook": "tag-wh", "Kafka": "tag-kafka", "Error": "tag-err" }[tag] || "tag-ui";
+    const cls = { "Order": "tag-order", "DB": "tag-db", "Webhook": "tag-wh", "Kafka": "tag-kafka", "Error": "tag-err" }[tag] || "tag-ui";
     const li = document.createElement("li");
     const t = document.createElement("span");
     t.className = "t";
@@ -261,7 +266,8 @@
   function route() {
     stopPolling();
     if (/\/return\/?$/.test(location.pathname)) {
-      showReturn(new URLSearchParams(location.search).get("invoiceNo"));
+      const q = new URLSearchParams(location.search);
+      showReturn(q.get("orderId"), q.get("invoiceNo"));
     } else {
       showShop();
     }
@@ -337,23 +343,24 @@
   async function checkout() {
     alertMsg("");
     $("checkout").disabled = true;
-    const orderId = "ORD-" + Date.now();
     const items = [...state.cart].map(([productId, quantity]) => ({ productId, quantity }));
-    log("UI", `POST /v1/payments orderId=${orderId} items=${items.length} (no amount sent)`);
+    log("UI", `POST /v1/orders items=${items.length} (no prices, no order id sent)`);
     try {
-      const { status, data } = await api("POST", "/v1/payments", { orderId, items });
+      const { status, data } = await api("POST", "/v1/orders", { items });
       if (status !== 201) {
         if (status !== 401) alertMsg(`Checkout failed: ${status} ${data.code || ""} ${data.message || ""}`);
-        log("Error", `POST /v1/payments → ${status} ${data.code || ""}`);
+        log("Error", `POST /v1/orders → ${status} ${data.code || ""}`);
         return;
       }
-      state.payment = data;
+      state.order = data;
       state.lastWebhook = null;
       $("replay").disabled = true;
-      $("dbg-db").textContent = `${data.status} (created ${time(data.createdAt)})`;
+      $("dbg-order").textContent = `${data.status} (created ${time(data.createdAt)})`;
+      $("dbg-db").textContent = "PENDING (payment created by ordering)";
       $("dbg-wh").textContent = "none yet";
       $("dbg-kafka").textContent = "no event yet (written only when the payment reaches a final status)";
-      log("DB", `payment ${data.invoiceNo} created: ${data.status}, ${group(data.amount)} ${data.currency} (priced by backend)`);
+      log("Order", `order ${data.orderId.slice(0, 8)}… ${data.status}, ${group(data.amount)} ${data.currency} (priced with the catalog)`);
+      log("DB", `payment ${data.payment.invoiceNo} PENDING, created by ordering → payment (in-process port call)`);
       openGateway(data);
     } catch (_) {
       alertMsg("Cannot reach the API. Is `make demo` still running?");
@@ -363,14 +370,14 @@
   }
 
   // ---------- mock 2C2P hosted payment page ----------
-  function openGateway(p) {
-    $("gw-url").textContent = p.checkoutUrl;
-    $("gw-amount").textContent = `${group(p.amount)} ${p.currency}`;
+  function openGateway(o) {
+    $("gw-url").textContent = o.payment.checkoutUrl;
+    $("gw-amount").textContent = `${group(o.amount)} ${o.currency}`;
     $("gw-merchant").textContent = creds.merchant || "–";
-    $("gw-invoice").textContent = p.invoiceNo;
+    $("gw-invoice").textContent = o.payment.invoiceNo;
     const body = $("gw-lines");
     body.textContent = "";
-    for (const l of p.lines) {
+    for (const l of o.lines) {
       const tr = document.createElement("tr");
       const a = document.createElement("td"); a.textContent = `${l.quantity} × ${l.name}`;
       const b = document.createElement("td"); b.className = "num"; b.textContent = `${group(l.lineTotal)} ${l.currency}`;
@@ -381,21 +388,22 @@
     if (!canSign) alertMsg("The webhook simulator needs the 2C2P sandbox key from `make demo` and http://localhost (WebCrypto).");
     $("gateway").classList.add("open");
     $("gw-success").focus();
-    log("UI", `redirected to mock 2C2P page ${p.checkoutUrl}`);
+    log("UI", `redirected to mock 2C2P page ${o.payment.checkoutUrl}`);
   }
 
   function closeGateway() { $("gateway").classList.remove("open"); }
 
   function payAtGateway(outcome) {
-    const p = state.payment;
+    const o = state.order;
     closeGateway();
     log("UI", outcome === "SUCCESS" ? "2C2P: card authorised, 3-D Secure OTP passed" : "2C2P: card declined");
     // Callback 1: frontend return (browser redirect). Carries no trusted result.
-    log("UI", `frontend return → ${BASE}/return?invoiceNo=${p.invoiceNo}`);
-    navigate(`${BASE}/return?invoiceNo=${encodeURIComponent(p.invoiceNo)}`);
+    const q = new URLSearchParams({ orderId: o.orderId, invoiceNo: o.payment.invoiceNo });
+    log("UI", `frontend return → ${BASE}/return?${q}`);
+    navigate(`${BASE}/return?${q}`);
     // Callback 2: server-to-server webhook, independent of the browser and usually a little later.
     log("Webhook", `2C2P will notify the backend in ${WEBHOOK_DELAY_MS / 1000} s (server-to-server)`);
-    setTimeout(() => sendWebhook(p, outcome), WEBHOOK_DELAY_MS);
+    setTimeout(() => sendWebhook(o, outcome), WEBHOOK_DELAY_MS);
   }
 
   const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
@@ -411,13 +419,14 @@
     return head + "." + body + "." + b64url(sig);
   }
 
-  async function sendWebhook(p, outcome) {
+  async function sendWebhook(o, outcome) {
+    const invoiceNo = o.payment.invoiceNo;
     const claims = {
       merchantID: creds.merchant,
-      invoiceNo: p.invoiceNo,
-      amount: p.amount,                 // decimal string, as 2C2P sends it
-      currencyCode: p.currency,
-      tranRef: "SIM" + p.invoiceNo.slice(-12), // stable per payment, so a replay is a duplicate
+      invoiceNo,
+      amount: o.amount,                 // decimal string, as 2C2P sends it
+      currencyCode: o.currency,
+      tranRef: "SIM" + invoiceNo.slice(-12), // stable per payment, so a replay is a duplicate
       respCode: RESP_CODES[outcome],
     };
     const body = { payload: await signHS256(claims, creds.secret) };
@@ -440,17 +449,19 @@
   }
 
   // ---------- view 2: return page + polling ----------
-  function showReturn(invoiceNo) {
-    if (!invoiceNo) { navigate(BASE); return; }
+  function showReturn(orderId, invoiceNo) {
+    if (!orderId || !invoiceNo) { navigate(BASE); return; }
     $("view-shop").hidden = true;
     $("view-return").hidden = false;
+    $("r-order").textContent = orderId;
     $("r-invoice").textContent = invoiceNo;
     state.polls = 0;
     state.lastStatus = null;
+    state.lastOrderStatus = null;
     state.lastEventsSig = "";
-    renderResult("PENDING");
-    tick(invoiceNo);
-    state.timer = setInterval(() => tick(invoiceNo), POLL_MS);
+    renderResult("VERIFYING");
+    tick(orderId, invoiceNo);
+    state.timer = setInterval(() => tick(orderId, invoiceNo), POLL_MS);
   }
 
   function stopPolling() {
@@ -458,57 +469,69 @@
     state.timer = null;
   }
 
-  function renderResult(status) {
-    const r = $("result");
-    r.className = "result " + status;
+  // The customer-facing result follows the order (ordering), not the payment.
+  function renderResult(kind) {
+    const cls = { PAID: "SUCCESS", PAYMENT_FAILED: "FAILED" }[kind] || "PENDING";
+    $("result").className = "result " + cls;
     const icon = $("result-icon");
     icon.textContent = "";
-    if (status === "PENDING") {
-      const s = document.createElement("span"); s.className = "spin"; icon.append(s);
-    } else {
-      const s = document.createElement("span"); s.className = "big-icon"; s.textContent = status === "SUCCESS" ? "✓" : "✕"; icon.append(s);
-    }
+    const s = document.createElement("span");
+    if (cls === "PENDING") { s.className = "spin"; } else { s.className = "big-icon"; s.textContent = cls === "SUCCESS" ? "✓" : "✕"; }
+    icon.append(s);
     const [title, text] = {
-      PENDING: ["Payment Pending", "Verifying your payment with 2C2P…"],
-      SUCCESS: ["Payment Successful! Order Confirmed", "Thank you. Your order is being prepared."],
-      FAILED: ["Payment Failed", "The payment was declined. You have not been charged."],
-    }[status] || [status, ""];
+      VERIFYING: ["Payment Pending", "Verifying your payment with 2C2P…"],
+      CONFIRMING: ["Payment Received", "Confirming your order… (payment event on its way through Kafka)"],
+      DECLINED: ["Payment Declined", "Updating your order… (payment event on its way through Kafka)"],
+      PAID: ["Payment Successful! Order Confirmed", "Thank you. Your order is being prepared."],
+      PAYMENT_FAILED: ["Payment Failed", "The payment was declined. You have not been charged."],
+    }[kind] || [kind, ""];
     $("result-title").textContent = title;
     $("result-text").textContent = text;
   }
 
-  async function tick(invoiceNo) {
-    const path = encodeURIComponent(invoiceNo);
-    let s;
+  async function tick(orderId, invoiceNo) {
+    let o, p;
     try {
-      s = await api("GET", `/v1/payments/${path}/status`);
+      [o, p] = await Promise.all([
+        api("GET", `/v1/orders/${encodeURIComponent(orderId)}`),
+        api("GET", `/v1/payments/${encodeURIComponent(invoiceNo)}/status`),
+      ]);
     } catch (_) {
       log("Error", "status poll failed: API unreachable");
       return;
     }
     state.polls++;
-    if (s.status !== 200) {
-      log("Error", `GET status → ${s.status} ${s.data.code || ""}`);
+    if (o.status !== 200 || p.status !== 200) {
+      log("Error", `poll → order ${o.status}, payment ${p.status}`);
       stopPolling();
       return;
     }
-    const p = s.data;
-    $("r-order").textContent = p.orderId;
-    $("r-amount").textContent = `${group(p.amount)} ${p.currency}`;
-    $("dbg-db").textContent = `${p.status} · updated ${time(p.updatedAt)} · poll #${state.polls}`;
-    if (p.status !== state.lastStatus) {
-      log("DB", `GET status (poll #${state.polls}) → ${p.status}`);
-      state.lastStatus = p.status;
-      renderResult(p.status);
+    const order = o.data, pay = p.data;
+    $("r-amount").textContent = `${group(order.amount)} ${order.currency}`;
+    $("dbg-order").textContent = `${order.status} · updated ${time(order.updatedAt)} · poll #${state.polls}`;
+    $("dbg-db").textContent = `payment ${pay.status} · updated ${time(pay.updatedAt)}`;
+    if (pay.status !== state.lastStatus) {
+      log("DB", `payment → ${pay.status} (poll #${state.polls})`);
+      state.lastStatus = pay.status;
     }
+    if (order.status !== state.lastOrderStatus) {
+      log("Order", `order → ${order.status} (poll #${state.polls})`);
+      state.lastOrderStatus = order.status;
+    }
+    if (order.status !== "AWAITING_PAYMENT") renderResult(order.status);
+    else renderResult({ SUCCESS: "CONFIRMING", FAILED: "DECLINED" }[pay.status] || "VERIFYING");
 
     let settled = false;
-    const e = await api("GET", `/v1/demo/payments/${path}/events`).catch(() => null);
-    if (e && e.status === 200) settled = renderEvents(e.data);
-
-    if (p.status !== "PENDING" && settled) {
+    const e = await api("GET", `/v1/demo/payments/${encodeURIComponent(invoiceNo)}/events`).catch(() => null);
+    if (e && e.status === 200) {
+      settled = renderEvents(e.data);
+      if (e.data.publisher === "disabled" && pay.status !== "PENDING" && order.status === "AWAITING_PAYMENT") {
+        alertMsg("The outbox relay is disabled (STORE=postgres without KAFKA_BROKERS), so ordering never hears about the payment and the order stays AWAITING_PAYMENT. Restart with `make demo KAFKA_BROKERS=localhost:9092` or `make demo STORE=memory`.");
+      }
+    }
+    if (order.status !== "AWAITING_PAYMENT" && settled) {
       stopPolling();
-      log("UI", "final status and its event are settled; polling stopped");
+      log("UI", "order is final and its payment event is settled; polling stopped");
     }
   }
 
@@ -551,7 +574,7 @@
   $("checkout").addEventListener("click", checkout);
   $("gw-success").addEventListener("click", () => payAtGateway("SUCCESS"));
   $("gw-failed").addEventListener("click", () => payAtGateway("FAILED"));
-  $("gw-cancel").addEventListener("click", () => { closeGateway(); log("UI", "customer cancelled on the 2C2P page; payment stays PENDING"); });
+  $("gw-cancel").addEventListener("click", () => { closeGateway(); log("UI", "customer cancelled on the 2C2P page; order awaits payment, payment stays PENDING"); });
   $("gateway").addEventListener("keydown", (ev) => { if (ev.key === "Escape") $("gw-cancel").click(); });
   $("continue").addEventListener("click", () => {
     state.cart.clear();
