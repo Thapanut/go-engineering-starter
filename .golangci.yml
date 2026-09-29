@@ -62,6 +62,15 @@ linters:
               desc: "modules talk through ports and adapters, never directly (ADR-0005)"
             - pkg: github.com/Thapanut/go-engineering-starter/internal/core/ordering
               desc: "modules talk through ports and adapters, never directly (ADR-0005)"
+        ordering-is-a-separate-module:
+          files:
+            - "**/internal/core/ordering/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/core/payment
+              desc: "ordering reaches payment through its PaymentStarter port and the paymentclient adapter (ADR-0005)"
+            - pkg: github.com/Thapanut/go-engineering-starter/internal/core/catalog
+              desc: "ordering reaches catalog through its PriceSource port and the catalogclient adapter (ADR-0005)"
         adapters-do-not-cross:
           files:
             - "**/internal/adapter/inbound/**"

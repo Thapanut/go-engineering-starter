@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added — Ordering module (ADR-0005, `docs/02-specs/order-flow-modules.md` step 3)
+- `internal/core/ordering`: `Order` (`AWAITING_PAYMENT → PAID | PAYMENT_FAILED`) with lines that snapshot name and unit price, `OrderUseCase`, outbound ports `PriceSource` and `PaymentStarter`, own `TxManager`.
+- `POST /v1/orders` (`placeOrder`: items only; priced with the catalog; payment started for the total) and `GET /v1/orders/{orderId}` (`getOrder`, owner only).
+- Cross-module adapters `outbound/ordering/catalogclient` and `outbound/ordering/paymentclient` (in-process today); Postgres (`ordering` schema) and memory order stores.
+- Migration `0005_ordering` (`orders`, `order_lines`, `processed_events`); depguard: ordering's core may not import catalog or payment.
+
 ### Added — Catalog module (ADR-0005, `docs/02-specs/order-flow-modules.md` step 2)
 - `internal/core/catalog` (domain, `CatalogUseCase`, `ProductRepository`, service); `GET /v1/products` now served by the catalog from PostgreSQL (`catalog.products`), memory adapter with the same sample rows for `STORE=memory`.
 - Migration `0004_catalog` (schema `catalog`); dev seed `migrations/dev/20_seed_catalog.sql` (3 active products, 1 inactive).

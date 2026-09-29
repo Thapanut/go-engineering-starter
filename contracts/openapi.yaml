@@ -19,6 +19,8 @@ tags:
     description: Callbacks from payment providers, authenticated by signature
   - name: catalog
     description: Products and prices, owned by the catalog module
+  - name: orders
+    description: Orders, owned by the ordering module; the browser's checkout entry point
   - name: payments
     description: Status of the customer's payments (created by the ordering module)
   - name: demo
@@ -129,6 +131,54 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Product" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /v1/orders:
+    post:
+      operationId: placeOrder
+      summary: Place an order; ordering prices it with the catalog and starts its payment
+      description: |
+        The client sends products and quantities only (no prices, no order id). Ordering
+        prices them with the catalog module, stores the order AWAITING_PAYMENT, and asks
+        the payment module to collect the total. The order becomes PAID or PAYMENT_FAILED
+        when ordering consumes payment.status-changed. See docs/02-specs/order-flow-modules.md.
+      tags: [orders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaceOrderRequest" }
+      responses:
+        "201":
+          description: Order placed and payment started
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlacedOrder" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /v1/orders/{orderId}:
+    get:
+      operationId: getOrder
+      summary: One of the caller's orders (for polling)
+      tags: [orders]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Order
+          headers:
+            X-Trace-Id: { $ref: "#/components/headers/TraceId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/InternalError" }
   /v1/payments/{invoiceNo}/status:
     get:
@@ -278,6 +328,64 @@ components:
         price: { $ref: "#/components/schemas/DecimalAmount" }
         priceMinor: { $ref: "#/components/schemas/AmountMinor" }
         currency: { $ref: "#/components/schemas/Currency" }
+    PlaceOrderRequest:
+      type: object
+      required: [items]
+      additionalProperties: false
+      description: No prices and no order id; ordering prices the items with the catalog.
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Each productId at most once; unknown or inactive products are rejected.
+          items:
+            type: object
+            required: [productId, quantity]
+            additionalProperties: false
+            properties:
+              productId: { type: string, example: CERAMIC-MUG }
+              quantity: { type: integer, minimum: 1, maximum: 99 }
+    OrderLine:
+      type: object
+      required: [productId, name, quantity, unitPrice, unitPriceMinor, lineTotal, lineTotalMinor, currency]
+      properties:
+        productId: { type: string }
+        name: { type: string, description: Snapshot at order time }
+        quantity: { type: integer }
+        unitPrice: { $ref: "#/components/schemas/DecimalAmount" }
+        unitPriceMinor: { $ref: "#/components/schemas/AmountMinor" }
+        lineTotal: { $ref: "#/components/schemas/DecimalAmount" }
+        lineTotalMinor: { $ref: "#/components/schemas/AmountMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+    Order:
+      type: object
+      required: [orderId, status, lines, amount, amountMinor, currency, createdAt, updatedAt]
+      properties:
+        orderId: { type: string, format: uuid }
+        status: { type: string, enum: [AWAITING_PAYMENT, PAID, PAYMENT_FAILED] }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/OrderLine" }
+        amount: { $ref: "#/components/schemas/DecimalAmount" }
+        amountMinor: { $ref: "#/components/schemas/AmountMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        invoiceNo: { type: string, description: The payment's reference; absent until payment has started }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PlacedOrder:
+      allOf:
+        - $ref: "#/components/schemas/Order"
+        - type: object
+          required: [payment]
+          properties:
+            payment:
+              type: object
+              required: [invoiceNo, paymentToken, checkoutUrl]
+              properties:
+                invoiceNo: { type: string, description: "Poll GET /v1/payments/{invoiceNo}/status with it" }
+                paymentToken: { type: string, description: 2C2P payment token for the hosted payment page }
+                checkoutUrl: { type: string, format: uri, description: 2C2P hosted payment page }
     DecimalAmount:
       type: string
       pattern: "^\\d{1,15}\\.\\d{2}$"

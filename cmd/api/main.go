@@ -14,11 +14,15 @@ import (
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/inbound/httpapi"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/kafka"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/memory"
+	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/ordering/catalogclient"
+	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/ordering/paymentclient"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/postgres"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/system"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/twoc2p"
 	catalogport "github.com/Thapanut/go-engineering-starter/internal/core/catalog/port"
 	catalogservice "github.com/Thapanut/go-engineering-starter/internal/core/catalog/service"
+	orderingport "github.com/Thapanut/go-engineering-starter/internal/core/ordering/port"
+	orderingservice "github.com/Thapanut/go-engineering-starter/internal/core/ordering/service"
 	"github.com/Thapanut/go-engineering-starter/internal/core/payment/port"
 	"github.com/Thapanut/go-engineering-starter/internal/core/payment/service"
 	"github.com/Thapanut/go-engineering-starter/internal/platform/auth"
@@ -56,6 +60,9 @@ func run() error {
 	// UNCONFIRMED: StubGateway stands in for the 2C2P Payment Token API (spec payment-checkout).
 	checkout := service.NewCheckoutService(st.tx, twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
 	catalog := catalogservice.NewCatalogService(st.products)
+	// Ordering reaches catalog and payment only through its client adapters (ADR-0005).
+	orders := orderingservice.NewOrderService(st.orders, catalogclient.Client{Catalog: catalog},
+		paymentclient.Client{Payments: checkout}, system.Clock{}, system.UUIDGenerator{})
 
 	// The outbox relay runs until shutdown; it must stop before the store closes.
 	relayDone := make(chan struct{})
@@ -69,7 +76,8 @@ func run() error {
 	defer func() { stop(); <-relayDone; closePub() }()
 
 	public := []httpapi.PublicModule{httpapi.WebhookModule{UseCase: webhooks}}
-	modules := []httpapi.Module{httpapi.CatalogModule{UseCase: catalog}, httpapi.PaymentModule{UseCase: checkout}}
+	modules := []httpapi.Module{httpapi.CatalogModule{UseCase: catalog}, httpapi.OrderModule{UseCase: orders},
+		httpapi.PaymentModule{UseCase: checkout}}
 	if cfg.DemoUI {
 		log.Warn("DEMO_UI_ENABLED: serving the payment demo page at /demo; not for production")
 		demo := httpapi.DemoModule{Events: checkout, Publisher: pubKind}
@@ -131,6 +139,7 @@ func newPublisher(cfg config.Config, log *slog.Logger) (port.MessagePublisher, s
 type store struct {
 	tx       port.TxManager                // payment
 	products catalogport.ProductRepository // catalog
+	orders   orderingport.TxManager        // ordering
 	ready    func(context.Context) error
 	close    func()
 }
@@ -139,7 +148,7 @@ type store struct {
 func newStore(ctx context.Context, cfg config.Config, log *slog.Logger) (store, error) {
 	if cfg.Store == config.StoreMemory {
 		log.Warn("using in-memory store; not for production")
-		return store{tx: memory.NewStore(), products: memory.SampleProducts(),
+		return store{tx: memory.NewStore(), products: memory.SampleProducts(), orders: memory.NewOrderStore(),
 			ready: func(context.Context) error { return nil }, close: func() {}}, nil
 	}
 	openCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -151,6 +160,7 @@ func newStore(ctx context.Context, cfg config.Config, log *slog.Logger) (store, 
 	return store{
 		tx:       postgres.NewTxManager(db),
 		products: postgres.NewProductRepository(db),
+		orders:   postgres.NewOrderingTxManager(db),
 		ready:    func(ctx context.Context) error { return postgres.Ping(ctx, db) },
 		close:    func() { postgres.Close(db) },
 	}, nil
