@@ -16,6 +16,7 @@ import (
 // repository touches the catalog schema (ADR-0005).
 type productModel struct {
 	ID        string    `gorm:"column:id;primaryKey"`
+	SKU       string    `gorm:"column:sku"`
 	Name      string    `gorm:"column:name"`
 	Price     int64     `gorm:"column:price_minor"`
 	Currency  string    `gorm:"column:currency"`
@@ -27,7 +28,7 @@ type productModel struct {
 func (productModel) TableName() string { return "catalog.products" }
 
 func (m productModel) toDomain() catalog.Product {
-	return catalog.Product{ID: m.ID, Name: m.Name, Active: m.Active,
+	return catalog.Product{ID: m.ID, SKU: m.SKU, Name: m.Name, Active: m.Active,
 		Price: kernel.Money{Amount: m.Price, Currency: kernel.Currency(m.Currency)}}
 }
 
@@ -40,7 +41,7 @@ var _ catalogport.ProductRepository = (*ProductRepository)(nil)
 // NewProductRepository returns a repository on db.
 func NewProductRepository(db *gorm.DB) *ProductRepository { return &ProductRepository{db: db} }
 
-// ListActive returns active products ordered by id.
+// ListActive returns active products ordered by SKU.
 func (r *ProductRepository) ListActive(ctx context.Context) ([]catalog.Product, error) {
 	return r.find(r.db.WithContext(ctx).Where("active"))
 }
@@ -52,7 +53,7 @@ func (r *ProductRepository) FindActive(ctx context.Context, ids []string) ([]cat
 
 func (r *ProductRepository) find(q *gorm.DB) ([]catalog.Product, error) {
 	var rows []productModel
-	if err := q.Order("id").Find(&rows).Error; err != nil {
+	if err := q.Order("sku").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("select products: %w", err)
 	}
 	out := make([]catalog.Product, len(rows))

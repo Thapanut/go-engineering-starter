@@ -28,8 +28,8 @@ type fakePrices struct{ calls atomic.Int64 }
 func (f *fakePrices) FindProducts(_ context.Context, ids []string) (map[string]domain.PricedProduct, error) {
 	f.calls.Add(1)
 	all := map[string]domain.PricedProduct{
-		"COFFEE-BEANS-250G": {ID: "COFFEE-BEANS-250G", Name: "Beans", Price: thb(45000)},
-		"CERAMIC-MUG":       {ID: "CERAMIC-MUG", Name: "Mug", Price: thb(29000)},
+		"04abef6a-166a-45f1-8004-904d9607a857": {ID: "04abef6a-166a-45f1-8004-904d9607a857", Name: "Beans", Price: thb(45000)},
+		"959e6207-8780-45c0-885b-be846a8f147f": {ID: "959e6207-8780-45c0-885b-be846a8f147f", Name: "Mug", Price: thb(29000)},
 	}
 	out := map[string]domain.PricedProduct{}
 	for _, id := range ids {
@@ -74,7 +74,7 @@ func newFixture() *fixture {
 	return f
 }
 
-var cart = []domain.Item{{ProductID: "COFFEE-BEANS-250G", Quantity: 2}, {ProductID: "CERAMIC-MUG", Quantity: 1}}
+var cart = []domain.Item{{ProductID: "04abef6a-166a-45f1-8004-904d9607a857", Quantity: 2}, {ProductID: "959e6207-8780-45c0-885b-be846a8f147f", Quantity: 1}}
 
 func TestOrderFlowAC02_PlaceOrderStoresItAndStartsPayment(t *testing.T) {
 	f := newFixture()
@@ -99,7 +99,7 @@ func TestOrderFlowAC03_InvalidCartReachesNoOtherModule(t *testing.T) {
 	f := newFixture()
 	for name, items := range map[string][]domain.Item{
 		"empty":     nil,
-		"duplicate": {{ProductID: "CERAMIC-MUG", Quantity: 1}, {ProductID: "CERAMIC-MUG", Quantity: 1}},
+		"duplicate": {{ProductID: "959e6207-8780-45c0-885b-be846a8f147f", Quantity: 1}, {ProductID: "959e6207-8780-45c0-885b-be846a8f147f", Quantity: 1}},
 	} {
 		if _, err := f.svc.PlaceOrder(context.Background(), port.PlaceOrderCommand{CustomerID: owner, Items: items}); !errors.Is(err, kernel.ErrValidation) {
 			t.Errorf("%s: err = %v", name, err)
@@ -109,7 +109,7 @@ func TestOrderFlowAC03_InvalidCartReachesNoOtherModule(t *testing.T) {
 		t.Fatal("catalog called for an invalid cart")
 	}
 	_, err := f.svc.PlaceOrder(context.Background(), port.PlaceOrderCommand{CustomerID: owner,
-		Items: []domain.Item{{ProductID: "HAND-GRINDER", Quantity: 1}}})
+		Items: []domain.Item{{ProductID: "bdb770cd-3bbe-4fe0-a0c6-2bea0db94c1c", Quantity: 1}}})
 	if !errors.Is(err, kernel.ErrValidation) || len(f.payments.calls) != 0 {
 		t.Fatalf("unknown product: err = %v, payment calls = %d", err, len(f.payments.calls))
 	}

@@ -26,13 +26,13 @@ func TestIntegration_PlaceOrderAcrossModules(t *testing.T) {
 		paymentclient.Client{Payments: checkout}, system.Clock{}, system.UUIDGenerator{})
 	ctx := context.Background()
 	placed, err := orders.PlaceOrder(ctx, orderingport.PlaceOrderCommand{CustomerID: "cust-it",
-		Items: []ordering.Item{{ProductID: "COFFEE-BEANS-250G", Quantity: 2}, {ProductID: "CERAMIC-MUG", Quantity: 1}}})
+		Items: []ordering.Item{{ProductID: "04abef6a-166a-45f1-8004-904d9607a857", Quantity: 2}, {ProductID: "959e6207-8780-45c0-885b-be846a8f147f", Quantity: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := orders.GetOrder(ctx, "cust-it", placed.Order.ID)
 	if err != nil || got.Status != ordering.AwaitingPayment || got.Amount.Amount != 119000 || len(got.Lines) != 2 ||
-		got.Lines[1].Name != "Ceramic Mug 350 ml" || got.InvoiceNo != placed.Payment.InvoiceNo {
+		got.Lines[1].Name != "Ceramic Mug 350 ml" || got.Lines[1].SKU != "CERAMIC-MUG" || got.InvoiceNo != placed.Payment.InvoiceNo {
 		t.Fatalf("order = %+v, err = %v", got, err)
 	}
 	var pay paymentModel

@@ -20,8 +20,8 @@ func TestIntegration_PaymentEventConfirmsOrderOnce(t *testing.T) {
 	_, db := setupPayments(t)
 	tx := NewOrderingTxManager(db)
 	o, err := ordering.NewOrder("5b1d7c2e-8f3a-4c6b-9e0d-1a2b3c4d5e6f", "cust-it",
-		[]ordering.Item{{ProductID: "CERAMIC-MUG", Quantity: 1}},
-		map[string]ordering.PricedProduct{"CERAMIC-MUG": {ID: "CERAMIC-MUG", Name: "Mug", Price: kernel.Money{Amount: 29000, Currency: kernel.THB}}},
+		[]ordering.Item{{ProductID: "959e6207-8780-45c0-885b-be846a8f147f", Quantity: 1}},
+		map[string]ordering.PricedProduct{"959e6207-8780-45c0-885b-be846a8f147f": {ID: "959e6207-8780-45c0-885b-be846a8f147f", SKU: "CERAMIC-MUG", Name: "Mug", Price: kernel.Money{Amount: 29000, Currency: kernel.THB}}},
 		time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)

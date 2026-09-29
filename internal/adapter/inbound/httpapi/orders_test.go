@@ -36,7 +36,7 @@ func newShopEnv(t *testing.T) *env {
 }
 
 // Synthetic cart: 2 × 450.00 + 1 × 290.00 = 1,190.00 THB.
-const cartBody = `{"items":[{"productId":"COFFEE-BEANS-250G","quantity":2},{"productId":"CERAMIC-MUG","quantity":1}]}`
+const cartBody = `{"items":[{"productId":"04abef6a-166a-45f1-8004-904d9607a857","quantity":2},{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":1}]}`
 
 func placeOrder(t *testing.T, e *env) placedOrderResponse {
 	t.Helper()
@@ -53,7 +53,7 @@ func TestOrderFlowAC02_PlaceOrderAcrossModules(t *testing.T) {
 	out := placeOrder(t, e)
 	if out.OrderID == "" || out.Status != "AWAITING_PAYMENT" || len(out.Lines) != 2 ||
 		out.amountFields != (amountFields{Amount: "1190.00", AmountMinor: 119000, Currency: "THB"}) ||
-		out.Lines[0] != (orderLineResponse{ProductID: "COFFEE-BEANS-250G", Name: "Arabica Coffee Beans 250 g", Quantity: 2,
+		out.Lines[0] != (orderLineResponse{ProductID: "04abef6a-166a-45f1-8004-904d9607a857", SKU: "COFFEE-BEANS-250G", Name: "Arabica Coffee Beans 250 g", Quantity: 2,
 			UnitPrice: "450.00", UnitPriceMinor: 45000, LineTotal: "900.00", LineTotalMinor: 90000, Currency: "THB"}) {
 		t.Fatalf("order = %+v", out)
 	}
@@ -75,14 +75,14 @@ func TestOrderFlowAC03_InvalidOrdersAre400(t *testing.T) {
 		"malformed":        `{"items":`,
 		"no items":         `{}`,
 		"empty items":      `{"items":[]}`,
-		"client amount":    `{"items":[{"productId":"CERAMIC-MUG","quantity":1}],"amount":"0.01"}`,
-		"item price":       `{"items":[{"productId":"CERAMIC-MUG","quantity":1,"price":"0.01"}]}`,
-		"client order id":  `{"orderId":"mine","items":[{"productId":"CERAMIC-MUG","quantity":1}]}`,
-		"zero quantity":    `{"items":[{"productId":"CERAMIC-MUG","quantity":0}]}`,
-		"string quantity":  `{"items":[{"productId":"CERAMIC-MUG","quantity":"1"}]}`,
+		"client amount":    `{"items":[{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":1}],"amount":"0.01"}`,
+		"item price":       `{"items":[{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":1,"price":"0.01"}]}`,
+		"client order id":  `{"orderId":"mine","items":[{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":1}]}`,
+		"zero quantity":    `{"items":[{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":0}]}`,
+		"string quantity":  `{"items":[{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":"1"}]}`,
 		"unknown product":  `{"items":[{"productId":"NOPE","quantity":1}]}`,
-		"inactive product": `{"items":[{"productId":"HAND-GRINDER","quantity":1}]}`,
-		"duplicate":        `{"items":[{"productId":"CERAMIC-MUG","quantity":1},{"productId":"CERAMIC-MUG","quantity":1}]}`,
+		"inactive product": `{"items":[{"productId":"bdb770cd-3bbe-4fe0-a0c6-2bea0db94c1c","quantity":1}]}`,
+		"duplicate":        `{"items":[{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":1},{"productId":"959e6207-8780-45c0-885b-be846a8f147f","quantity":1}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			assertError(t, e.do(t, call{method: "POST", path: "/v1/orders", token: e.token(t), body: body}),

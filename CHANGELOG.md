@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed — Products are identified by UUID; the code becomes the SKU (`docs/02-specs/order-flow-modules.md` §4)
+- Migration `0007_product_uuid_sku`: `catalog.products.id` is a `uuid` primary key; the former text id (e.g. `CERAMIC-MUG`) moves to `sku` (unique, may change). `ordering.order_lines.product_id` becomes `uuid` and lines snapshot `sku`; existing lines are converted.
+- OpenAPI (unreleased): `productId` is a lowercase UUID; `Product` and `OrderLine` have `sku`. `POST /v1/orders` rejects a `productId` that is not a UUID with `VALIDATION_ERROR`.
+- Dev seed and `STORE=memory` use fixed UUIDs; the demo page shows the SKU.
+
 ### Changed — Money columns name their unit (`docs/02-specs/order-flow-modules.md` §4)
 - Migration `0006_money_minor_columns` renames `payments.amount`, `catalog.products.price`, `ordering.orders.amount`, `ordering.order_lines.unit_price` / `line_total` to `*_minor` (values unchanged: `bigint` minor units, e.g. 45000 = 450.00 THB), matching `priceMinor` / `amountMinor` in the API and `amount_minor` in events.
 

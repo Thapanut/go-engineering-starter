@@ -58,14 +58,15 @@ sequenceDiagram
   - Migrations: `0004_catalog` (schema `catalog`, table `products`: `id text PK`, `name`, `price bigint CHECK > 0`, `currency char(3)`, `active bool`, timestamps); `0005_ordering` (schema `ordering`: `orders` (`id uuid PK`, `customer_id`, `status` CHECK, `amount bigint`, `currency`, `invoice_no text NULL UNIQUE`, timestamps), `order_lines` (`order_id` FK, `line_no`, `product_id`, `name`, `unit_price`, `quantity`, `line_total`, PK `(order_id, line_no)`), `processed_events` (`event_id uuid PK`, `processed_at`)).
   - Dev seed `migrations/dev/20_seed_catalog.sql`: the three sample products (synthetic).
   - `0006_money_minor_columns` (owner, 2026-09-29): money columns name their unit, like the API and the event: `payments.amount_minor`, `catalog.products.price_minor`, `ordering.orders.amount_minor`, `ordering.order_lines.unit_price_minor` / `line_total_minor` (still `bigint` minor units).
+  - `0007_product_uuid_sku` (owner, 2026-09-29): `catalog.products.id` becomes a `uuid` primary key and the former text id becomes `sku` (`text NOT NULL UNIQUE`, may change); `ordering.order_lines.product_id` becomes `uuid` and lines snapshot `sku`. OpenAPI: `productId` is a lowercase UUID (`ProductId`), `Product` and `OrderLine` gain required `sku` (unreleased, changed in v1).
   - No new env vars: the consumer runs when `KAFKA_BROKERS` is set; group id `ordering` is a constant.
 
 ## 5. Acceptance criteria
 | ID | Given | When | Then |
 |---|---|---|---|
 | AC-01 | Products seeded in `catalog.products` (one inactive) | `GET /v1/products` | 200 with the active products and their `price`/`priceMinor`/`currency` from the database |
-| AC-02 | A customer with a valid token | `POST /v1/orders {"items":[{"productId":"COFFEE-BEANS-250G","quantity":2},{"productId":"CERAMIC-MUG","quantity":1}]}` | 201: order `AWAITING_PAYMENT`, server-generated `orderId`, priced `lines`, total 1,190.00 THB, and `payment` with `invoiceNo`, `checkoutUrl`; order + lines stored in `ordering`; a PENDING payment for 1,190.00 THB with `order_id` stored in payment |
-| AC-03 | A valid token | Items are empty, > 20, repeat a product, have quantity outside 1–99, or name an unknown or inactive product; or the body has unknown fields such as `amount`, `price`, or `orderId` | 400 `VALIDATION_ERROR`; no order, no payment |
+| AC-02 | A customer with a valid token | `POST /v1/orders` with 2 × COFFEE-BEANS-250G and 1 × CERAMIC-MUG (by their `productId` UUIDs) | 201: order `AWAITING_PAYMENT`, server-generated `orderId`, priced `lines`, total 1,190.00 THB, and `payment` with `invoiceNo`, `checkoutUrl`; order + lines stored in `ordering`; a PENDING payment for 1,190.00 THB with `order_id` stored in payment |
+| AC-03 | A valid token | Items are empty, > 20, repeat a product, have quantity outside 1–99, have a `productId` that is not a UUID, or name an unknown or inactive product; or the body has unknown fields such as `amount`, `price`, or `orderId` | 400 `VALIDATION_ERROR`; no order, no payment |
 | AC-04 | Payment fails to start | `POST /v1/orders` | 500 `INTERNAL_ERROR`; the order stays `AWAITING_PAYMENT` with no invoice |
 | AC-05 | The customer owns order X | `GET /v1/orders/X` | 200 with status, lines, total, `invoiceNo`, `updatedAt`; another customer or unknown id → 404 `NOT_FOUND` |
 | AC-06 | Order X awaits payment | `payment.status-changed` SUCCESS for X with the order total arrives | Order X is `PAID`; FAILED → `PAYMENT_FAILED` |

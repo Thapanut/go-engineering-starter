@@ -37,6 +37,7 @@ type placeOrderRequest struct {
 
 type orderLineResponse struct {
 	ProductID      string `json:"productId"`
+	SKU            string `json:"sku"`
 	Name           string `json:"name"`
 	Quantity       int    `json:"quantity"`
 	UnitPrice      string `json:"unitPrice"`
@@ -70,7 +71,7 @@ type placedOrderResponse struct {
 func toOrderResponse(o ordering.Order) orderResponse {
 	lines := make([]orderLineResponse, len(o.Lines))
 	for i, l := range o.Lines {
-		lines[i] = orderLineResponse{ProductID: l.ProductID, Name: l.Name, Quantity: l.Quantity,
+		lines[i] = orderLineResponse{ProductID: l.ProductID, SKU: l.SKU, Name: l.Name, Quantity: l.Quantity,
 			UnitPrice: l.UnitPrice.Decimal(), UnitPriceMinor: l.UnitPrice.Amount,
 			LineTotal: l.Total.Decimal(), LineTotalMinor: l.Total.Amount, Currency: string(l.Total.Currency)}
 	}

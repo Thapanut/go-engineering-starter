@@ -160,7 +160,7 @@ func TestOrderFlowAC11_InProcessDeliveryConfirmsTheOrder(t *testing.T) {
 	relay := paymentservice.NewOutboxRelay(payStore, pub, system.Clock{}, h.Log, 10)
 
 	placed, err := orders.PlaceOrder(ctx, orderingport.PlaceOrderCommand{CustomerID: "cust",
-		Items: []ordering.Item{{ProductID: "CERAMIC-MUG", Quantity: 1}}})
+		Items: []ordering.Item{{ProductID: "959e6207-8780-45c0-885b-be846a8f147f", Quantity: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}

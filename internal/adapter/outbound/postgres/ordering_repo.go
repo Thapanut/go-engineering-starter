@@ -33,6 +33,7 @@ type orderLineModel struct {
 	OrderID   string `gorm:"column:order_id;primaryKey"`
 	LineNo    int    `gorm:"column:line_no;primaryKey"`
 	ProductID string `gorm:"column:product_id"`
+	SKU       string `gorm:"column:sku"`
 	Name      string `gorm:"column:name"`
 	UnitPrice int64  `gorm:"column:unit_price_minor"`
 	Quantity  int    `gorm:"column:quantity"`
@@ -71,7 +72,7 @@ func (r orderRepo) Create(ctx context.Context, o ordering.Order) error {
 	}
 	lines := make([]orderLineModel, len(o.Lines))
 	for i, l := range o.Lines {
-		lines[i] = orderLineModel{OrderID: o.ID, LineNo: l.No, ProductID: l.ProductID, Name: l.Name,
+		lines[i] = orderLineModel{OrderID: o.ID, LineNo: l.No, ProductID: l.ProductID, SKU: l.SKU, Name: l.Name,
 			UnitPrice: l.UnitPrice.Amount, Quantity: l.Quantity, LineTotal: l.Total.Amount, Currency: string(l.Total.Currency)}
 	}
 	if err := r.db.WithContext(ctx).Create(&lines).Error; err != nil {
@@ -163,7 +164,7 @@ func (m orderModel) toDomain(lines []orderLineModel) ordering.Order {
 	}
 	o.Lines = make([]ordering.Line, len(lines))
 	for i, l := range lines {
-		o.Lines[i] = ordering.Line{No: l.LineNo, ProductID: l.ProductID, Name: l.Name, Quantity: l.Quantity,
+		o.Lines[i] = ordering.Line{No: l.LineNo, ProductID: l.ProductID, SKU: l.SKU, Name: l.Name, Quantity: l.Quantity,
 			UnitPrice: money(l.UnitPrice, l.Currency), Total: money(l.LineTotal, l.Currency)}
 	}
 	return o

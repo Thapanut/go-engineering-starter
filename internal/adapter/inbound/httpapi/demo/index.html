@@ -49,6 +49,7 @@
   button:disabled { opacity: .45; cursor: not-allowed; }
   .alert { grid-column: 1 / -1; background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 12px 14px; display: none; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .product .sku { font-size: 12px; opacity: .65; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--soft); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
 
   /* Shop */
@@ -301,6 +302,7 @@
       const card = document.createElement("div");
       card.className = "product";
       const name = document.createElement("div"); name.className = "name"; name.textContent = p.name;
+      const sku = document.createElement("div"); sku.className = "sku mono"; sku.textContent = p.sku; sku.title = "productId " + p.productId;
       const price = document.createElement("div"); price.className = "price"; price.textContent = `${group(p.price)} ${p.currency}`;
       const qty = document.createElement("div"); qty.className = "qty";
       const minus = document.createElement("button"); minus.className = "ghost"; minus.textContent = "−"; minus.setAttribute("aria-label", "Remove one " + p.name);
@@ -309,7 +311,7 @@
       minus.addEventListener("click", () => setQty(p.productId, (state.cart.get(p.productId) || 0) - 1));
       plus.addEventListener("click", () => setQty(p.productId, (state.cart.get(p.productId) || 0) + 1));
       qty.append(minus, n, plus);
-      card.append(name, price, qty);
+      card.append(name, sku, price, qty);
       box.append(card);
     }
     log("UI", `loaded ${state.products.length} products from GET /v1/products`);

@@ -319,11 +319,22 @@ components:
               createdAt: { type: string, format: date-time }
               publishedAt: { type: [string, "null"], format: date-time, description: null until the relay published it }
               payload: { type: object, description: "payment.status-changed payload, see contracts/asyncapi.yaml" }
+    ProductId:
+      type: string
+      format: uuid
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      description: Stable product identifier (lowercase UUID). Never reused; use it to reference a product.
+      example: 959e6207-8780-45c0-885b-be846a8f147f
+    Sku:
+      type: string
+      description: Merchant's product code, for people. Unique but may change; do not use it as a reference.
+      example: CERAMIC-MUG
     Product:
       type: object
-      required: [productId, name, price, priceMinor, currency]
+      required: [productId, sku, name, price, priceMinor, currency]
       properties:
-        productId: { type: string, example: CERAMIC-MUG }
+        productId: { $ref: "#/components/schemas/ProductId" }
+        sku: { $ref: "#/components/schemas/Sku" }
         name: { type: string }
         price: { $ref: "#/components/schemas/DecimalAmount" }
         priceMinor: { $ref: "#/components/schemas/AmountMinor" }
@@ -344,13 +355,14 @@ components:
             required: [productId, quantity]
             additionalProperties: false
             properties:
-              productId: { type: string, example: CERAMIC-MUG }
+              productId: { $ref: "#/components/schemas/ProductId" }
               quantity: { type: integer, minimum: 1, maximum: 99 }
     OrderLine:
       type: object
-      required: [productId, name, quantity, unitPrice, unitPriceMinor, lineTotal, lineTotalMinor, currency]
+      required: [productId, sku, name, quantity, unitPrice, unitPriceMinor, lineTotal, lineTotalMinor, currency]
       properties:
-        productId: { type: string }
+        productId: { $ref: "#/components/schemas/ProductId" }
+        sku: { $ref: "#/components/schemas/Sku", description: Snapshot at order time }
         name: { type: string, description: Snapshot at order time }
         quantity: { type: integer }
         unitPrice: { $ref: "#/components/schemas/DecimalAmount" }

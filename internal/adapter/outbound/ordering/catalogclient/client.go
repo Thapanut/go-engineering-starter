@@ -25,7 +25,7 @@ func (c Client) FindProducts(ctx context.Context, ids []string) (map[string]orde
 	}
 	out := make(map[string]ordering.PricedProduct, len(found))
 	for id, p := range found {
-		out[id] = ordering.PricedProduct{ID: p.ID, Name: p.Name, Price: p.Price}
+		out[id] = ordering.PricedProduct{ID: p.ID, SKU: p.SKU, Name: p.Name, Price: p.Price}
 	}
 	return out, nil
 }

@@ -12,8 +12,8 @@ import (
 type CatalogUseCase interface {
 	// ListProducts returns the active products.
 	ListProducts(ctx context.Context) ([]domain.Product, error)
-	// FindProducts returns the active products among ids, keyed by id. Unknown
-	// and inactive ids are absent.
+	// FindProducts returns the active products among ids, keyed by id. Unknown,
+	// inactive, and malformed ids are absent.
 	FindProducts(ctx context.Context, ids []string) (map[string]domain.Product, error)
 }
 

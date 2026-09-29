@@ -23,7 +23,7 @@ func TestOrderFlowAC01_ProductsEndpoint(t *testing.T) {
 	if r.status != http.StatusOK || json.Unmarshal(r.body, &out) != nil || len(out.Products) != 3 {
 		t.Fatalf("status = %d body = %s", r.status, r.body)
 	}
-	if out.Products[1] != (productResponse{ProductID: "CERAMIC-MUG", Name: "Ceramic Mug 350 ml", Price: "290.00", PriceMinor: 29000, Currency: "THB"}) {
+	if out.Products[1] != (productResponse{ProductID: "959e6207-8780-45c0-885b-be846a8f147f", SKU: "CERAMIC-MUG", Name: "Ceramic Mug 350 ml", Price: "290.00", PriceMinor: 29000, Currency: "THB"}) {
 		t.Fatalf("product = %+v", out.Products[1])
 	}
 }

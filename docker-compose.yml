@@ -18,6 +18,7 @@ services:
       - ./migrations/0004_catalog.up.sql:/docker-entrypoint-initdb.d/13_0004_catalog.up.sql:ro
       - ./migrations/0005_ordering.up.sql:/docker-entrypoint-initdb.d/14_0005_ordering.up.sql:ro
       - ./migrations/0006_money_minor_columns.up.sql:/docker-entrypoint-initdb.d/15_0006_money_minor_columns.up.sql:ro
+      - ./migrations/0007_product_uuid_sku.up.sql:/docker-entrypoint-initdb.d/16_0007_product_uuid_sku.up.sql:ro
       - ./migrations/dev/20_seed_catalog.sql:/docker-entrypoint-initdb.d/20_seed_catalog.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app_user -d app"]

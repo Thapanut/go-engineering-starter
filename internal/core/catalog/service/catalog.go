@@ -31,10 +31,16 @@ func (s *CatalogService) ListProducts(ctx context.Context) ([]domain.Product, er
 
 // FindProducts returns the active products among ids.
 func (s *CatalogService) FindProducts(ctx context.Context, ids []string) (map[string]domain.Product, error) {
-	if len(ids) == 0 {
+	valid := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if domain.IsProductID(id) {
+			valid = append(valid, id)
+		}
+	}
+	if len(valid) == 0 {
 		return map[string]domain.Product{}, nil
 	}
-	found, err := s.products.FindActive(ctx, ids)
+	found, err := s.products.FindActive(ctx, valid)
 	if err != nil {
 		return nil, fmt.Errorf("find products: %w", err)
 	}

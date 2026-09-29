@@ -21,6 +21,7 @@ func (m CatalogModule) Register(v1 fiber.Router) {
 
 type productResponse struct {
 	ProductID  string `json:"productId"`
+	SKU        string `json:"sku"`
 	Name       string `json:"name"`
 	Price      string `json:"price"`
 	PriceMinor int64  `json:"priceMinor"`
@@ -38,7 +39,7 @@ func (m CatalogModule) products(c *fiber.Ctx) error {
 	}
 	out := productListResponse{Products: make([]productResponse, len(products))}
 	for i, p := range products {
-		out.Products[i] = productResponse{ProductID: p.ID, Name: p.Name, Price: p.Price.Decimal(),
+		out.Products[i] = productResponse{ProductID: p.ID, SKU: p.SKU, Name: p.Name, Price: p.Price.Decimal(),
 			PriceMinor: p.Price.Amount, Currency: string(p.Price.Currency)}
 	}
 	return c.JSON(out)

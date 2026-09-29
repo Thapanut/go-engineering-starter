@@ -5,6 +5,7 @@ package domain
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"time"
 
 	"github.com/Thapanut/go-engineering-starter/internal/kernel"
@@ -38,15 +39,19 @@ type Item struct {
 // PricedProduct is ordering's view of a catalog product at order time.
 type PricedProduct struct {
 	ID    string
+	SKU   string
 	Name  string
 	Price kernel.Money
 }
 
-// Line is an ordered product. It snapshots the name and unit price, so later
-// catalog changes do not alter the order.
+var productIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// Line is an ordered product. It snapshots the SKU, name, and unit price, so
+// later catalog changes do not alter the order.
 type Line struct {
 	No        int
 	ProductID string
+	SKU       string
 	Name      string
 	UnitPrice kernel.Money
 	Quantity  int
@@ -75,6 +80,8 @@ func ValidateItems(items []Item) error {
 		switch {
 		case it.ProductID == "":
 			return kernel.Invalid("productId is required")
+		case !productIDRe.MatchString(it.ProductID):
+			return kernel.Invalid("productId must be a lowercase UUID")
 		case it.Quantity < 1 || it.Quantity > MaxQuantity:
 			return kernel.Invalid(fmt.Sprintf("quantity must be 1-%d", MaxQuantity))
 		case seen[it.ProductID]:
@@ -112,7 +119,7 @@ func NewOrder(id, customerID string, items []Item, products map[string]PricedPro
 		if total, err = total.Add(lineTotal); err != nil {
 			return Order{}, err // mixed currencies or overflow
 		}
-		lines = append(lines, Line{No: i + 1, ProductID: p.ID, Name: p.Name, UnitPrice: p.Price, Quantity: it.Quantity, Total: lineTotal})
+		lines = append(lines, Line{No: i + 1, ProductID: p.ID, SKU: p.SKU, Name: p.Name, UnitPrice: p.Price, Quantity: it.Quantity, Total: lineTotal})
 	}
 	return Order{ID: id, CustomerID: customerID, Status: AwaitingPayment, Lines: lines, Amount: total,
 		CreatedAt: now, UpdatedAt: now}, nil
