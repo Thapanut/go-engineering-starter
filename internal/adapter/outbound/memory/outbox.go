@@ -13,9 +13,12 @@ import (
 )
 
 type outboxEntry struct {
-	msg         port.OutboxMessage
-	published   bool
-	publishedAt time.Time
+	msg           port.OutboxMessage
+	status        port.OutboxStatus
+	publishedAt   time.Time
+	attempts      int
+	lastError     string
+	lastAttemptAt time.Time
 }
 
 // outboxRepo implements port.OutboxRepository on the transaction's working copy.
@@ -27,7 +30,7 @@ func (r outboxRepo) AddPaymentStatusChanged(_ context.Context, e domain.PaymentS
 	if err != nil {
 		return err
 	}
-	r.st.outbox = append(r.st.outbox, outboxEntry{msg: msg})
+	r.st.outbox = append(r.st.outbox, outboxEntry{msg: msg, status: port.OutboxPending})
 	return nil
 }
 
@@ -37,7 +40,7 @@ func (r outboxRepo) ClaimPending(_ context.Context, limit int) ([]port.OutboxMes
 		if len(msgs) == limit {
 			break
 		}
-		if !e.published {
+		if e.status == port.OutboxPending {
 			msgs = append(msgs, e.msg)
 		}
 	}
@@ -47,8 +50,8 @@ func (r outboxRepo) ClaimPending(_ context.Context, limit int) ([]port.OutboxMes
 func (r outboxRepo) MarkPublished(_ context.Context, ids []string, at time.Time) error {
 	marked := 0
 	for i := range r.st.outbox {
-		if !r.st.outbox[i].published && slices.Contains(ids, r.st.outbox[i].msg.ID) {
-			r.st.outbox[i].published, r.st.outbox[i].publishedAt = true, at
+		if r.st.outbox[i].status == port.OutboxPending && slices.Contains(ids, r.st.outbox[i].msg.ID) {
+			r.st.outbox[i].status, r.st.outbox[i].publishedAt = port.OutboxPublished, at
 			marked++
 		}
 	}
@@ -58,11 +61,43 @@ func (r outboxRepo) MarkPublished(_ context.Context, ids []string, at time.Time)
 	return nil
 }
 
+func (r outboxRepo) RecordFailedAttempts(_ context.Context, failed []port.FailedAttempt, at time.Time, maxAttempts int) ([]port.AttemptResult, error) {
+	out := make([]port.AttemptResult, 0, len(failed))
+	for _, f := range failed {
+		i := slices.IndexFunc(r.st.outbox, func(e outboxEntry) bool { return e.msg.ID == f.ID && e.status == port.OutboxPending })
+		if i < 0 {
+			return nil, fmt.Errorf("record attempt for outbox message %s: %w", f.ID, domain.ErrConflict)
+		}
+		e := &r.st.outbox[i]
+		e.attempts, e.lastError, e.lastAttemptAt = e.attempts+1, f.Reason, at
+		if f.Permanent && e.attempts >= maxAttempts {
+			e.status = port.OutboxFailed
+		}
+		out = append(out, port.AttemptResult{ID: f.ID, Topic: e.msg.Topic, Attempts: e.attempts,
+			Parked: e.status == port.OutboxFailed, LastError: e.lastError})
+	}
+	return out, nil
+}
+
+// Requeue puts a parked message back to PENDING with zero attempts, as an Admin
+// does with SQL on PostgreSQL. For STORE=memory tests.
+func (s *Store) Requeue(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.st.outbox {
+		if e := &s.st.outbox[i]; e.msg.ID == id && e.status == port.OutboxFailed {
+			e.status, e.attempts = port.OutboxPending, 0
+			return true
+		}
+	}
+	return false
+}
+
 func (r outboxRepo) ListByKey(_ context.Context, key string) ([]port.OutboxRecord, error) {
 	var recs []port.OutboxRecord
 	for _, e := range r.st.outbox {
 		if e.msg.Key == key {
-			recs = append(recs, port.OutboxRecord{Message: e.msg, PublishedAt: e.publishedAt})
+			recs = append(recs, port.OutboxRecord{Message: e.msg, Status: e.status, PublishedAt: e.publishedAt})
 		}
 	}
 	return recs, nil

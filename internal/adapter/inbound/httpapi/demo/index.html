@@ -574,7 +574,9 @@
     } else {
       const ev = events[events.length - 1];
       const topic = `${ev.topic} key=${ev.key.slice(0, 8)}…`;
-      if (ev.publishedAt && publisher === "kafka") {
+      if (ev.status === "FAILED") {
+        text = `✕ parked as FAILED: the broker keeps rejecting it; an Admin must re-queue it · ${topic}`;
+      } else if (ev.publishedAt && publisher === "kafka") {
         text = `✓ published to Kafka at ${time(ev.publishedAt)} · ${topic}`;
       } else if (ev.publishedAt) {
         text = `published in-process at ${time(ev.publishedAt)} (not Kafka: start with KAFKA_BROKERS=localhost:9092)`;
@@ -583,7 +585,7 @@
       } else {
         text = `in outbox since ${time(ev.createdAt)}, waiting for the relay…`;
       }
-      settled = Boolean(ev.publishedAt) || publisher === "disabled";
+      settled = Boolean(ev.publishedAt) || ev.status === "FAILED" || publisher === "disabled";
       text += events.length > 1 ? ` · ${events.length} events` : "";
     }
     $("dbg-kafka").textContent = text;

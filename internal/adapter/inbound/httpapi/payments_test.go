@@ -171,7 +171,7 @@ func TestCheckoutAC13_DemoEventsShowOutboxState(t *testing.T) {
 		t.Fatalf("status = %d body = %s", r.status, r.body)
 	}
 	if ev.Publisher != PublisherInProcess || len(ev.Events) != 1 || ev.Events[0].Key != out.ID ||
-		ev.Events[0].PublishedAt != nil || !strings.Contains(string(ev.Events[0].Payload), `"amount_minor":100000`) {
+		ev.Events[0].PublishedAt != nil || ev.Events[0].Status != "PENDING" || !strings.Contains(string(ev.Events[0].Payload), `"amount_minor":100000`) {
 		t.Fatalf("events = %s", r.body)
 	}
 	assertError(t, e.do(t, call{method: "GET", path: path, token: e.tokenFor(t, "cust-other")}), http.StatusNotFound, "NOT_FOUND")

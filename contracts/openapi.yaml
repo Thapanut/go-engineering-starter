@@ -311,12 +311,13 @@ components:
           type: array
           items:
             type: object
-            required: [eventId, topic, key, createdAt, publishedAt, payload]
+            required: [eventId, topic, key, createdAt, status, publishedAt, payload]
             properties:
               eventId: { type: string, format: uuid }
               topic: { type: string }
               key: { type: string, description: payment id }
               createdAt: { type: string, format: date-time }
+              status: { type: string, enum: [PENDING, PUBLISHED, FAILED], description: "FAILED: parked after repeated permanent publish failures (ADR-0004 amendment 1)" }
               publishedAt: { type: [string, "null"], format: date-time, description: null until the relay published it }
               payload: { type: object, description: "payment.status-changed payload, see contracts/asyncapi.yaml" }
     ProductId:

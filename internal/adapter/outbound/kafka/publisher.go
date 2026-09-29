@@ -7,6 +7,7 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -33,15 +34,71 @@ func NewPublisher(brokers []string) *Publisher {
 	}}
 }
 
-// Publish writes msgs and returns once all are acknowledged by the in-sync replicas.
+// Publish writes msgs and returns once all are acknowledged by the in-sync
+// replicas. When only some fail it returns a *port.PublishError; failures retrying
+// cannot fix are wrapped with port.ErrPermanentPublish. A message over the client's
+// size limit does not stop the others: they are written without it.
 func (p *Publisher) Publish(ctx context.Context, msgs []port.OutboxMessage) error {
-	if len(msgs) == 0 {
-		return nil
+	failed := map[string]error{}
+	pending := toKafka(msgs)
+	for len(pending) > 0 {
+		err := p.w.WriteMessages(ctx, pending...)
+		var tooLarge kafkago.MessageTooLargeError
+		var perMessage kafkago.WriteErrors
+		switch {
+		case err == nil:
+			pending = nil
+		case errors.As(err, &tooLarge):
+			failed[eventID(tooLarge.Message)] = fmt.Errorf("%w: %w", port.ErrPermanentPublish, err)
+			pending = tooLarge.Remaining
+		case errors.As(err, &perMessage) && len(perMessage) == len(pending):
+			for i, e := range perMessage {
+				if e != nil {
+					failed[eventID(pending[i])] = classify(e)
+				}
+			}
+			pending = nil
+		default: // nothing in this write can be assumed published
+			if len(failed) == 0 {
+				return fmt.Errorf("kafka write %d messages: %w", len(pending), err)
+			}
+			for _, m := range pending {
+				failed[eventID(m)] = err
+			}
+			pending = nil
+		}
 	}
-	if err := p.w.WriteMessages(ctx, toKafka(msgs)...); err != nil {
-		return fmt.Errorf("kafka write %d messages: %w", len(msgs), err)
+	if len(failed) > 0 {
+		return &port.PublishError{Failed: failed}
 	}
 	return nil
+}
+
+// permanent lists broker error codes that retrying the same message cannot fix.
+// Everything else, including authorization errors (fixable by ops, and affecting
+// every message), is transient: the message is retried, never parked.
+var permanent = map[kafkago.Error]bool{
+	kafkago.MessageSizeTooLarge: true,
+	kafkago.RecordListTooLarge:  true,
+	kafkago.InvalidTopic:        true,
+	kafkago.InvalidRecord:       true,
+}
+
+func classify(err error) error {
+	var code kafkago.Error
+	if errors.As(err, &code) && permanent[code] {
+		return fmt.Errorf("%w: %w", port.ErrPermanentPublish, err)
+	}
+	return err
+}
+
+func eventID(m kafkago.Message) string {
+	for _, h := range m.Headers {
+		if h.Key == "event_id" {
+			return string(h.Value)
+		}
+	}
+	return ""
 }
 
 // Close flushes and closes the writer.

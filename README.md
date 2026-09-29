@@ -56,8 +56,12 @@ make kafka-ui                             # หรือดูผ่านเว
 make webhook-demo                         # terminal 3: สร้าง payment PENDING + ส่ง webhook ที่เซ็นแล้ว → PROCESSED
 make webhook-demo                         # ส่งซ้ำ → DUPLICATE, ไม่มี event ใหม่
 make webhook-demo INVOICE=INV-DEMO-0002 AMOUNT=500.00 RESP=4001   # payment ใหม่ → FAILED
+make dlq-replay                           # ดู event ที่ ordering อ่านไม่ได้ (DLQ) — dry run
+make dlq-replay ARGS="-dry-run=false"     # Admin: replay เข้า retry topic
 ```
-ถ้า DB ถูกสร้างไว้ก่อน migration ล่าสุด (`0002`–`0005`, seed ใน `migrations/dev/`) ให้ `make db-reset` ก่อน (ลบข้อมูล dev)
+ถ้า DB ถูกสร้างไว้ก่อน migration ล่าสุด (`0002`–`0008`, seed ใน `migrations/dev/`) ให้ `make db-reset` ก่อน (ลบข้อมูล dev)
+
+Event ที่ publish ไม่ได้ถาวร (เช่นใหญ่เกิน) จะถูก park เป็น `FAILED` หลังลอง 10 ครั้ง ([ADR-0004 amendment 1](docs/01-architecture/adr/0004-transactional-outbox-kafka.md)); ดูด้วย `SELECT id, status, attempts, last_error FROM outbox WHERE status <> 'PUBLISHED'` แล้ว re-queue หลังแก้สาเหตุ: `UPDATE outbox SET status = 'PENDING', attempts = 0 WHERE id = '<event_id>' AND status = 'FAILED';`
 
 หน้า demo checkout → webhook → polling ในเบราว์เซอร์ ([flow](docs/02-specs/frontend-integration-flow.md)):
 ```bash

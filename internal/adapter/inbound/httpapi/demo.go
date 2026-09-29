@@ -65,6 +65,7 @@ type demoEvent struct {
 	Topic       string          `json:"topic"`
 	Key         string          `json:"key"`
 	CreatedAt   string          `json:"createdAt"`
+	Status      string          `json:"status"`      // PENDING, PUBLISHED, or FAILED (parked)
 	PublishedAt *string         `json:"publishedAt"` // null until the relay has published it
 	Payload     json.RawMessage `json:"payload"`
 }
@@ -81,7 +82,7 @@ func (m DemoModule) events(c *fiber.Ctx) error {
 	}
 	out := demoEventsResponse{Publisher: m.Publisher, Events: make([]demoEvent, len(recs))}
 	for i, r := range recs {
-		e := demoEvent{EventID: r.Message.ID, Topic: r.Message.Topic, Key: r.Message.Key,
+		e := demoEvent{EventID: r.Message.ID, Topic: r.Message.Topic, Key: r.Message.Key, Status: string(r.Status),
 			CreatedAt: r.Message.CreatedAt.UTC().Format(time.RFC3339Nano), Payload: r.Message.Payload}
 		if !r.PublishedAt.IsZero() {
 			at := r.PublishedAt.UTC().Format(time.RFC3339Nano)

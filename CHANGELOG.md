@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added — Outbox attempts and parking of permanent failures (`docs/02-specs/outbox-attempt-tracking.md`, ADR-0004 amendment 1)
+- Migration `0008_outbox_status_attempts`: `outbox.status` (`PENDING` / `PUBLISHED` / `FAILED`), `attempts`, `last_error`, `last_attempt_at`; existing published rows backfilled; partial index `ix_outbox_pending` replaces `ix_outbox_unpublished`.
+- The Kafka publisher reports per-message results (`port.PublishError`) and marks `MESSAGE_TOO_LARGE`, `RECORD_LIST_TOO_LARGE`, `INVALID_TOPIC_EXCEPTION`, `INVALID_RECORD`, and client-side oversize as permanent (`port.ErrPermanentPublish`); an oversize message no longer blocks the rest of its batch.
+- The relay marks what was published and records a failed attempt for the rest in the same transaction; a permanent failure is parked as `FAILED` after 10 attempts (ERROR "outbox message parked"); transient failures are never parked (ERROR every 10 attempts). Admin re-queue: `UPDATE outbox SET status = 'PENDING', attempts = 0 WHERE id = … AND status = 'FAILED'`.
+- `getDemoPaymentEvents` returns each event's `status`; the demo page stops polling on a parked event.
+
 ### Added — Dead-letter queue and bounded retry for the ordering consumer (`docs/02-specs/ordering-consumer-dlq.md`, ADR-0004 amendment 1)
 - Poison payment events (undecodable, or rejected by validation) go to `payments.v1.status-changed.ordering.dlq` with the original key, value, and headers plus `dlq-*` diagnostic headers, then the offset is committed. Previously they were logged and skipped.
 - Transient failures retry with backoff 1 s doubling to 30 s (±20 %), never dead-lettered; ERROR "payment event consumer stalled" every 5 min on one message. A DLQ outage is transient: no commit until the DLQ write is acknowledged.
