@@ -118,4 +118,4 @@ Data flow: Kafka topic → consumer (ordering) → PostgreSQL `ordering`; consum
 - [x] Replay target: separate retry topic read only by ordering (owner, 2026-09-30).
 - [x] Who runs `dlqreplay`: an Admin, with the Admin Kafka principal in production (owner, 2026-09-30). Broker ACLs are provisioned outside this repo.
 - [x] Backoff 1 s start, 30 s cap, 5 min stall threshold (owner, 2026-09-30).
-- [ ] Where do "consumer stalled" and "dead-lettered" ERROR logs page someone (no alerting stack defined yet)?
+- [x] Alerting (owner, 2026-09-30): the critical ERROR lines (dead-lettered, consumer stalled, outbox parked, outbox not publishable) carry `"alert": true, "alert_type": "DLQ_ALERT"` in the JSON log; log collectors (Fluent Bit / Promtail) route them to Slack / Opsgenie. No notification client in the service.

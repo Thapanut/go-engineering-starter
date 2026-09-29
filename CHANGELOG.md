@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added — Alert fields on critical DLQ / outbox logs (owner, 2026-09-30)
+- "payment event dead-lettered", "payment event consumer stalled", "outbox message parked", and "outbox message not publishable" log lines carry `"alert": true, "alert_type": "DLQ_ALERT"` so log collectors (Fluent Bit / Promtail) can route them to Slack / Opsgenie.
+
 ### Added — Outbox attempts and parking of permanent failures (`docs/02-specs/outbox-attempt-tracking.md`, ADR-0004 amendment 1)
 - Migration `0008_outbox_status_attempts`: `outbox.status` (`PENDING` / `PUBLISHED` / `FAILED`), `attempts`, `last_error`, `last_attempt_at`; existing published rows backfilled; partial index `ix_outbox_pending` replaces `ix_outbox_unpublished`.
 - The Kafka publisher reports per-message results (`port.PublishError`) and marks `MESSAGE_TOO_LARGE`, `RECORD_LIST_TOO_LARGE`, `INVALID_TOPIC_EXCEPTION`, `INVALID_RECORD`, and client-side oversize as permanent (`port.ErrPermanentPublish`); an oversize message no longer blocks the rest of its batch.

@@ -60,4 +60,4 @@ Make an outbox message that keeps failing to publish visible — how many times 
 ## 8. Open questions
 - [x] Park permanently failing messages? Yes, as `FAILED` after 10 attempts (owner, 2026-09-30; ADR-0004 amendment 1).
 - [x] Threshold: 10 attempts (owner, 2026-09-30).
-- [ ] Where does the "parked" ERROR page someone (no alerting stack yet)?
+- [x] Alerting (owner, 2026-09-30): the critical ERROR lines (dead-lettered, consumer stalled, outbox parked, outbox not publishable) carry `"alert": true, "alert_type": "DLQ_ALERT"` in the JSON log; log collectors (Fluent Bit / Promtail) route them to Slack / Opsgenie. No notification client in the service.

@@ -139,6 +139,9 @@ func TestOutboxAC04_AC06_PermanentFailureIsParkedAtTheLimitWithoutBlockingOthers
 	if n := bytes.Count(logs.Bytes(), []byte("outbox message parked")); n != 1 {
 		t.Fatalf("parked logs = %d: %s", n, logs.Bytes())
 	}
+	if !bytes.Contains(logs.Bytes(), []byte(`"alert":true,"alert_type":"DLQ_ALERT"`)) {
+		t.Fatalf("parked log is not an alert: %s", logs.Bytes())
+	}
 	if !bytes.Contains(logs.Bytes(), []byte(`"attempts":10`)) || bytes.Contains(logs.Bytes(), []byte("INV-0001")) {
 		t.Fatalf("log = %s", logs.Bytes())
 	}
@@ -158,6 +161,9 @@ func TestOutboxAC05_TransientFailureIsNeverParked(t *testing.T) {
 	}
 	if s := statuses(t, st, 1)["evt-1"]; s != port.OutboxPending {
 		t.Fatalf("status = %s, want PENDING", s)
+	}
+	if n := bytes.Count(logs.Bytes(), []byte(`"alert_type":"DLQ_ALERT"`)); n != 2 {
+		t.Fatalf("alert lines = %d", n)
 	}
 	if n := bytes.Count(logs.Bytes(), []byte("outbox message not publishable")); n != 2 { // at 10 and 20
 		t.Fatalf("alerts = %d", n)

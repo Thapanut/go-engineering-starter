@@ -108,8 +108,10 @@ func split(msgs []port.OutboxMessage, pubErr error) (ok []string, failed []port.
 // keeps failing. Logs carry ids and error text only, never payload.
 func (r *OutboxRelay) alert(ctx context.Context, results []port.AttemptResult) {
 	for _, a := range results {
+		// "alert" and "alert_type" let log collectors route these lines to Slack or
+		// Opsgenie (no notification client in the service).
 		attrs := []any{slog.String("event_id", a.ID), slog.String("topic", a.Topic), slog.Int("attempts", a.Attempts),
-			slog.String("last_error", a.LastError)}
+			slog.String("last_error", a.LastError), slog.Bool("alert", true), slog.String("alert_type", "DLQ_ALERT")}
 		switch {
 		case a.Parked:
 			r.log.ErrorContext(ctx, "outbox message parked; re-queue after fixing the cause", attrs...)

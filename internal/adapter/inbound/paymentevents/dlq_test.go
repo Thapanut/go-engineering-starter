@@ -135,7 +135,7 @@ func TestDLQAC01_MalformedMessageIsDeadLetteredThenCommitted(t *testing.T) {
 	if m.Topic != DLQTopic || string(m.Key) != "pay-1" || string(m.Value) != `not json` || h[HeaderReason] == "" {
 		t.Fatalf("dlq message = %+v", m)
 	}
-	if !strings.Contains(logs.String(), "payment event dead-lettered") {
+	if !strings.Contains(logs.String(), "payment event dead-lettered") || !strings.Contains(logs.String(), `"alert":true,"alert_type":"DLQ_ALERT"`) {
 		t.Fatalf("logs = %s", logs)
 	}
 }
@@ -210,6 +210,9 @@ func TestDLQAC07_StallIsLoggedEveryStallPeriod(t *testing.T) {
 	}
 	runUntil(t, c, func() bool { return len(r.commits()) == 1 })
 	// Failures at +3, +6, +9 min after the start: stalls at 6 (≥5) and 9 is < 10, so once.
+	if n := strings.Count(logs.String(), `"alert_type":"DLQ_ALERT"`); n != 1 {
+		t.Fatalf("alert lines = %d: %s", n, logs)
+	}
 	if n := strings.Count(logs.String(), "payment event consumer stalled"); n != 1 {
 		t.Fatalf("stall logs = %d: %s", n, logs)
 	}

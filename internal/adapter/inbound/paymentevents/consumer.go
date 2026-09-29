@@ -39,6 +39,10 @@ const (
 	maxReasonLen            = 256
 )
 
+// alertAttrs mark a log line for log collectors (Fluent Bit, Promtail) to route to
+// Slack or Opsgenie: structured JSON fields "alert": true, "alert_type": "DLQ_ALERT".
+var alertAttrs = []any{slog.Bool("alert", true), slog.String("alert_type", "DLQ_ALERT")}
+
 // Backoff is the retry policy for transient failures: Initial doubling up to Max,
 // each delay varied by ±Jitter, and a "stalled" ERROR every StallAfter on one message.
 type Backoff struct {
@@ -143,8 +147,8 @@ func (c *Consumer) process(ctx context.Context, m kafkago.Message) bool {
 		if errors.Is(err, ErrPoison) {
 			reason := PoisonReason(err)
 			if err = c.deadLetter(ctx, m, reason); err == nil {
-				c.log.ErrorContext(ctx, "payment event dead-lettered", c.attrs(m, slog.String("dlq_topic", DLQTopic),
-					slog.String("reason", reason))...)
+				c.log.ErrorContext(ctx, "payment event dead-lettered", c.attrs(m, append([]any{slog.String("dlq_topic", DLQTopic),
+					slog.String("reason", reason)}, alertAttrs...)...)...)
 				return true
 			}
 			err = errors.Join(errors.New("write to DLQ"), err) // a DLQ outage is transient: retry, no commit
@@ -155,8 +159,8 @@ func (c *Consumer) process(ctx context.Context, m kafkago.Message) bool {
 		c.log.WarnContext(ctx, "handle payment event failed; retrying", c.attrs(m, slog.Int("attempt", attempt),
 			slog.String("error", err.Error()))...)
 		if stalled := c.now().Sub(start); stalled >= nextStall {
-			c.log.ErrorContext(ctx, "payment event consumer stalled", c.attrs(m, slog.Duration("stalled_for", stalled),
-				slog.Int("attempt", attempt))...)
+			c.log.ErrorContext(ctx, "payment event consumer stalled", c.attrs(m, append([]any{slog.Duration("stalled_for", stalled),
+				slog.Int("attempt", attempt)}, alertAttrs...)...)...)
 			nextStall += c.backoff.StallAfter
 		}
 		if !sleep(ctx, c.backoff.delay(attempt, c.rnd())) {
