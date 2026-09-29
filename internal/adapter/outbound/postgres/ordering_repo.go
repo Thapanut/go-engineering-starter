@@ -20,7 +20,7 @@ type orderModel struct {
 	ID         string    `gorm:"column:id;primaryKey"`
 	CustomerID string    `gorm:"column:customer_id"`
 	Status     string    `gorm:"column:status"`
-	Amount     int64     `gorm:"column:amount"`
+	Amount     int64     `gorm:"column:amount_minor"`
 	Currency   string    `gorm:"column:currency"`
 	InvoiceNo  *string   `gorm:"column:invoice_no"`
 	CreatedAt  time.Time `gorm:"column:created_at"`
@@ -34,9 +34,9 @@ type orderLineModel struct {
 	LineNo    int    `gorm:"column:line_no;primaryKey"`
 	ProductID string `gorm:"column:product_id"`
 	Name      string `gorm:"column:name"`
-	UnitPrice int64  `gorm:"column:unit_price"`
+	UnitPrice int64  `gorm:"column:unit_price_minor"`
 	Quantity  int    `gorm:"column:quantity"`
-	LineTotal int64  `gorm:"column:line_total"`
+	LineTotal int64  `gorm:"column:line_total_minor"`
 	Currency  string `gorm:"column:currency"`
 }
 

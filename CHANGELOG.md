@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed — Money columns name their unit (`docs/02-specs/order-flow-modules.md` §4)
+- Migration `0006_money_minor_columns` renames `payments.amount`, `catalog.products.price`, `ordering.orders.amount`, `ordering.order_lines.unit_price` / `line_total` to `*_minor` (values unchanged: `bigint` minor units, e.g. 45000 = 450.00 THB), matching `priceMinor` / `amountMinor` in the API and `amount_minor` in events.
+
 ### Changed — Demo page follows the order across modules (`docs/02-specs/order-flow-modules.md` step 5)
 - `/demo` checks out through `POST /v1/orders`, polls `GET /v1/orders/{orderId}` and the payment status, and shows *Payment Received — confirming your order…* while the payment event travels through Kafka; the debug box adds `[Order Service]`.
 - `docs/02-specs/frontend-integration-flow.md` sequence diagram now shows ordering → catalog → payment → 2C2P → Kafka → ordering.

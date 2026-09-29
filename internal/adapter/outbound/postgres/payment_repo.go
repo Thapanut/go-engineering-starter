@@ -19,7 +19,7 @@ type paymentModel struct {
 	InvoiceNo    string    `gorm:"column:invoice_no"`
 	OrderID      string    `gorm:"column:order_id"`
 	CustomerID   string    `gorm:"column:customer_id"`
-	Amount       int64     `gorm:"column:amount"`
+	Amount       int64     `gorm:"column:amount_minor"`
 	Currency     string    `gorm:"column:currency"`
 	Status       string    `gorm:"column:status"`
 	ProviderRef  string    `gorm:"column:provider_ref"`

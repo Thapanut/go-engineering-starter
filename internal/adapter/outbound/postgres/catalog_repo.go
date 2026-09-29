@@ -17,7 +17,7 @@ import (
 type productModel struct {
 	ID        string    `gorm:"column:id;primaryKey"`
 	Name      string    `gorm:"column:name"`
-	Price     int64     `gorm:"column:price"`
+	Price     int64     `gorm:"column:price_minor"`
 	Currency  string    `gorm:"column:currency"`
 	Active    bool      `gorm:"column:active"`
 	CreatedAt time.Time `gorm:"column:created_at"`

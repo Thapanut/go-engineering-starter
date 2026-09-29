@@ -57,6 +57,7 @@ sequenceDiagram
   - `contracts/asyncapi.yaml`: add required `order_id` to `payment.status-changed`; document consumer `ordering` (unreleased, changed in v1).
   - Migrations: `0004_catalog` (schema `catalog`, table `products`: `id text PK`, `name`, `price bigint CHECK > 0`, `currency char(3)`, `active bool`, timestamps); `0005_ordering` (schema `ordering`: `orders` (`id uuid PK`, `customer_id`, `status` CHECK, `amount bigint`, `currency`, `invoice_no text NULL UNIQUE`, timestamps), `order_lines` (`order_id` FK, `line_no`, `product_id`, `name`, `unit_price`, `quantity`, `line_total`, PK `(order_id, line_no)`), `processed_events` (`event_id uuid PK`, `processed_at`)).
   - Dev seed `migrations/dev/20_seed_catalog.sql`: the three sample products (synthetic).
+  - `0006_money_minor_columns` (owner, 2026-09-29): money columns name their unit, like the API and the event: `payments.amount_minor`, `catalog.products.price_minor`, `ordering.orders.amount_minor`, `ordering.order_lines.unit_price_minor` / `line_total_minor` (still `bigint` minor units).
   - No new env vars: the consumer runs when `KAFKA_BROKERS` is set; group id `ordering` is a constant.
 
 ## 5. Acceptance criteria

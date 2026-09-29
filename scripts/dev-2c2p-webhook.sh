@@ -18,7 +18,7 @@ db="${DB_DSN##*/}"; db="${db%%\?*}"
 
 docker compose exec -T db psql -q -v ON_ERROR_STOP=1 -U app_user -d "$db" \
   -v invoice="$INVOICE" -v amount="$AMOUNT" <<'SQL'
-INSERT INTO payments (id, invoice_no, amount, currency, status)
+INSERT INTO payments (id, invoice_no, amount_minor, currency, status)
 VALUES (gen_random_uuid(), :'invoice', round(:'amount'::numeric * 100)::bigint, 'THB', 'PENDING')
 ON CONFLICT (invoice_no) DO NOTHING;
 SQL
