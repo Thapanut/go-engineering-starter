@@ -37,6 +37,13 @@ linters:
               desc: "database access belongs in adapter/outbound (ADR-0002)"
             - pkg: net/http
               desc: "transport belongs in adapter/inbound (ADR-0002)"
+        kernel-is-standalone:
+          files:
+            - "**/internal/kernel/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/Thapanut/go-engineering-starter/internal
+              desc: "the shared kernel depends on the standard library only (ADR-0005)"
         adapters-do-not-cross:
           files:
             - "**/internal/adapter/inbound/**"

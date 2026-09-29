@@ -10,7 +10,7 @@ import (
 )
 
 func pending() domain.Payment {
-	return domain.Payment{ID: "p1", InvoiceNo: "INV1", Amount: thb(23087), Status: domain.PaymentPending}
+	return domain.Payment{ID: "p1", InvoiceNo: "INV1", OrderID: "ord-1", Amount: thb(23087), Status: domain.PaymentPending}
 }
 
 func notification(outcome domain.PaymentStatus) domain.PaymentNotification {
@@ -81,7 +81,7 @@ func TestPaymentStatusChangedCarriesTheTransition(t *testing.T) {
 	if _, err := p.Apply(notification(domain.PaymentSuccess), now); err != nil {
 		t.Fatal(err)
 	}
-	want := domain.PaymentStatusChanged{EventID: "evt-1", PaymentID: "p1", InvoiceNo: "INV1",
+	want := domain.PaymentStatusChanged{EventID: "evt-1", PaymentID: "p1", OrderID: "ord-1", InvoiceNo: "INV1",
 		Status: domain.PaymentSuccess, Amount: thb(23087), ProviderRef: "2868821", OccurredAt: now}
 	if got := p.StatusChanged("evt-1"); got != want {
 		t.Fatalf("got %+v, want %+v", got, want)

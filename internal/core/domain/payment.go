@@ -106,6 +106,7 @@ const (
 type PaymentStatusChanged struct {
 	EventID     string
 	PaymentID   string
+	OrderID     string
 	InvoiceNo   string
 	Status      PaymentStatus
 	Amount      Money
@@ -118,6 +119,7 @@ func (p Payment) StatusChanged(eventID string) PaymentStatusChanged {
 	return PaymentStatusChanged{
 		EventID:     eventID,
 		PaymentID:   p.ID,
+		OrderID:     p.OrderID,
 		InvoiceNo:   p.InvoiceNo,
 		Status:      p.Status,
 		Amount:      p.Amount,

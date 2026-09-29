@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed — Payment collects what ordering asks for (ADR-0005, `docs/02-specs/order-flow-modules.md`)
+- Shared kernel `internal/kernel` (`Money`, `ParseDecimal`, generic errors); payment's `domain` keeps aliases. depguard keeps the kernel standard-library only.
+- `CheckoutUseCase.CreatePayment` takes `orderId`, `customerId`, and `amount` from the ordering module; payment no longer prices carts. **Removed (unreleased):** `POST /v1/payments`, `GET /v1/products` from payment, `ProductCatalog`, `domain.PriceOrder`.
+- `payment.status-changed` carries `order_id` (unreleased contract, changed in v1).
+
 ### Added — Cart checkout and status polling (`docs/02-specs/payment-checkout.md`)
 - `GET /v1/products` (`listProducts`): sample catalog priced by the backend (`catalog.Sample`, port `ProductCatalog`).
 - `POST /v1/payments` (`createPayment`): takes `orderId` and `items` (no amount); `domain.PriceOrder` prices them; creates a PENDING payment owned by the JWT subject with a server-generated `invoiceNo`, then opens a payment session; returns the priced `lines`, `paymentToken`, and `checkoutUrl`.

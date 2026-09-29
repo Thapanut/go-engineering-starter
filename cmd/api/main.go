@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/inbound/httpapi"
-	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/catalog"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/kafka"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/memory"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/postgres"
@@ -52,9 +51,8 @@ func run() error {
 	// NewApp (JWT-protected modules as arguments, signature-authenticated ones in Public).
 	webhooks := service.NewWebhookService(
 		twoc2p.NewVerifier(cfg.TwoC2PSecretKey, cfg.TwoC2PMerchantID), st.tx, system.Clock{}, system.UUIDGenerator{}, log)
-	// UNCONFIRMED: the sample catalog and StubGateway stand in for a pricing service and
-	// the 2C2P Payment Token API (spec payment-checkout).
-	checkout := service.NewCheckoutService(st.tx, catalog.Sample(), twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
+	// UNCONFIRMED: StubGateway stands in for the 2C2P Payment Token API (spec payment-checkout).
+	checkout := service.NewCheckoutService(st.tx, twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
 
 	// The outbox relay runs until shutdown; it must stop before the store closes.
 	relayDone := make(chan struct{})

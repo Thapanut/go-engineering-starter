@@ -13,7 +13,6 @@ import (
 // See docs/02-specs/payment-checkout.md.
 type CheckoutService struct {
 	tx      port.TxManager
-	catalog port.ProductCatalog
 	gateway port.PaymentGateway
 	clock   port.Clock
 	ids     port.IDGenerator
@@ -25,44 +24,19 @@ var (
 )
 
 // NewCheckoutService wires the service to its outbound ports.
-func NewCheckoutService(tx port.TxManager, catalog port.ProductCatalog, gw port.PaymentGateway,
-	clock port.Clock, ids port.IDGenerator) *CheckoutService {
-	return &CheckoutService{tx: tx, catalog: catalog, gateway: gw, clock: clock, ids: ids}
+func NewCheckoutService(tx port.TxManager, gw port.PaymentGateway, clock port.Clock, ids port.IDGenerator) *CheckoutService {
+	return &CheckoutService{tx: tx, gateway: gw, clock: clock, ids: ids}
 }
 
-// ListProducts returns the catalog.
-func (s *CheckoutService) ListProducts(ctx context.Context) ([]domain.Product, error) {
-	products, err := s.catalog.ListProducts(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list products: %w", err)
-	}
-	return products, nil
-}
-
-// CreatePayment prices the cart from the catalog (the client sends no amount,
-// AC-12), stores the payment, and only then opens the provider session, outside
-// the transaction: the provider can never notify us about an invoice we have not
-// stored. If the gateway fails, the payment stays PENDING without a session (AC-05).
+// CreatePayment stores the payment and only then opens the provider session,
+// outside the transaction: the provider can never notify us about an invoice we
+// have not stored. If the gateway fails, the payment stays PENDING without a
+// session. The amount is trusted: only the ordering module calls this (ADR-0005).
 func (s *CheckoutService) CreatePayment(ctx context.Context, cmd port.CreatePaymentCommand) (port.Checkout, error) {
-	if err := domain.ValidateOrderItems(cmd.Items); err != nil {
-		return port.Checkout{}, err // AC-02: before any lookup
-	}
-	ids := make([]string, len(cmd.Items))
-	for i, it := range cmd.Items {
-		ids[i] = it.ProductID
-	}
-	products, err := s.catalog.FindProducts(ctx, ids)
-	if err != nil {
-		return port.Checkout{}, fmt.Errorf("find products: %w", err)
-	}
-	lines, total, err := domain.PriceOrder(cmd.Items, products)
-	if err != nil {
-		return port.Checkout{}, err // AC-02: unknown product, mixed currency
-	}
 	p, err := domain.NewPendingPayment(s.ids.NewID(), newInvoiceNo(s.ids.NewID()), cmd.OrderID, cmd.CustomerID,
-		total, s.clock.Now().UTC())
+		cmd.Amount, s.clock.Now().UTC())
 	if err != nil {
-		return port.Checkout{}, err // AC-02
+		return port.Checkout{}, err
 	}
 	err = s.tx.WithinTx(ctx, func(ctx context.Context, r port.Repositories) error {
 		return r.Payments.Create(ctx, p)
@@ -74,7 +48,7 @@ func (s *CheckoutService) CreatePayment(ctx context.Context, cmd port.CreatePaym
 	if err != nil {
 		return port.Checkout{}, fmt.Errorf("create payment session: %w", err)
 	}
-	return port.Checkout{Payment: p, Lines: lines, Session: sess}, nil
+	return port.Checkout{Payment: p, Session: sess}, nil
 }
 
 // GetPayment hides other customers' payments behind NOT_FOUND (AC-07).

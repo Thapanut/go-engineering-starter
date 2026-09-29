@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/catalog"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/system"
 	"github.com/Thapanut/go-engineering-starter/internal/adapter/outbound/twoc2p"
 	"github.com/Thapanut/go-engineering-starter/internal/core/domain"
@@ -19,10 +18,10 @@ import (
 // Spec payment-checkout AC-01, AC-06, AC-07 on PostgreSQL (migration 0003).
 func TestIntegration_CheckoutStoresOwnerAndOrder(t *testing.T) {
 	_, db := setupPayments(t)
-	svc := service.NewCheckoutService(NewTxManager(db), catalog.Sample(), twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
+	svc := service.NewCheckoutService(NewTxManager(db), twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
 	ctx := context.Background()
 	co, err := svc.CreatePayment(ctx, port.CreatePaymentCommand{CustomerID: "cust-it", OrderID: "ORD-IT-1",
-		Items: []domain.OrderItem{{ProductID: "CERAMIC-MUG", Quantity: 2}}})
+		Amount: domain.Money{Amount: 58000, Currency: domain.THB}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +44,7 @@ func TestIntegration_CheckoutStoresOwnerAndOrder(t *testing.T) {
 // Rows created before 0003 have no owner and are readable by nobody.
 func TestIntegration_LegacyPaymentHasNoOwner(t *testing.T) {
 	_, db := setupPayments(t) // seeds itInvoice without order/customer
-	svc := service.NewCheckoutService(NewTxManager(db), catalog.Sample(), twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
+	svc := service.NewCheckoutService(NewTxManager(db), twoc2p.StubGateway{}, system.Clock{}, system.UUIDGenerator{})
 	if _, err := svc.GetPayment(context.Background(), "cust-it", itInvoice); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
