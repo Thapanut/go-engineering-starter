@@ -73,6 +73,7 @@
   .result.FAILED { background: var(--bad-bg); color: var(--bad); }
   .result h3 { margin: 10px 0 4px; font-size: 24px; }
   .result p { margin: 0; }
+  .result .conn { margin-top: 10px; font-size: 13px; color: var(--bad); }
   .big-icon { font-size: 40px; line-height: 1; }
   .spin { width: 40px; height: 40px; border-radius: 50%; border: 4px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -138,6 +139,7 @@
         <div id="result-icon"><span class="spin"></span></div>
         <h3 id="result-title">Payment Pending</h3>
         <p id="result-text">Verifying your payment with 2C2P…</p>
+        <p class="conn" id="result-conn" role="status" hidden></p>
       </div>
       <dl class="facts">
         <dt>Order</dt><dd class="mono" id="r-order">–</dd>
@@ -192,6 +194,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const POLL_MS = 2000;           // frontend status polling
+  const REQUEST_TIMEOUT_MS = 5000; // a hung request fails instead of freezing the page
   const WEBHOOK_DELAY_MS = 3000;  // 2C2P's server-to-server call arrives independently of the redirect
   const RESP_CODES = { SUCCESS: "0000", FAILED: "4001" };
   const BASE = location.pathname.replace(/\/return\/?$/, "").replace(/\/+$/, ""); // "/demo"
@@ -218,6 +221,7 @@
     lastOrderStatus: null,
     timer: null,
     polls: 0,
+    polling: false,      // a tick is in flight
     lastStatus: null,
     lastEventsSig: "",
     lastWebhook: null,   // { body, respCode } for replay
@@ -256,7 +260,8 @@
   async function api(method, path, body, auth = true) {
     const headers = { "Content-Type": "application/json" };
     if (auth) headers.Authorization = "Bearer " + creds.token;
-    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
+    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 && auth) alertMsg("The dev JWT is missing or expired. Stop the server, run `make demo` again, and open the new URL.");
     return { status: res.status, data };
@@ -459,6 +464,8 @@
     state.lastStatus = null;
     state.lastOrderStatus = null;
     state.lastEventsSig = "";
+    state.polling = false;
+    showConn("");
     renderResult("VERIFYING");
     tick(orderId, invoiceNo);
     state.timer = setInterval(() => tick(orderId, invoiceNo), POLL_MS);
@@ -489,23 +496,44 @@
     $("result-text").textContent = text;
   }
 
+  // Poll failures show on the result card, not only in the debug log.
+  function showConn(msg) {
+    $("result-conn").textContent = msg;
+    $("result-conn").hidden = !msg;
+  }
+
+  // One tick at a time: a slow request never overlaps the next one.
   async function tick(orderId, invoiceNo) {
+    if (state.polling) return;
+    state.polling = true;
+    try {
+      await poll(orderId, invoiceNo);
+    } finally {
+      state.polling = false;
+    }
+  }
+
+  async function poll(orderId, invoiceNo) {
     let o, p;
     try {
       [o, p] = await Promise.all([
         api("GET", `/v1/orders/${encodeURIComponent(orderId)}`),
         api("GET", `/v1/payments/${encodeURIComponent(invoiceNo)}/status`),
       ]);
-    } catch (_) {
-      log("Error", "status poll failed: API unreachable");
+    } catch (err) {
+      const why = err && err.name === "TimeoutError" ? `no answer in ${REQUEST_TIMEOUT_MS / 1000} s` : "API unreachable";
+      log("Error", `status poll failed: ${why}; retrying`);
+      showConn(`Can't reach the server (${why}). Retrying every ${POLL_MS / 1000} s…`);
       return;
     }
     state.polls++;
     if (o.status !== 200 || p.status !== 200) {
       log("Error", `poll → order ${o.status}, payment ${p.status}`);
+      showConn(`Status check failed (order HTTP ${o.status}, payment HTTP ${p.status}). Polling stopped; reload to retry.`);
       stopPolling();
       return;
     }
+    showConn("");
     const order = o.data, pay = p.data;
     $("r-amount").textContent = `${group(order.amount)} ${order.currency}`;
     $("dbg-order").textContent = `${order.status} · updated ${time(order.updatedAt)} · poll #${state.polls}`;
