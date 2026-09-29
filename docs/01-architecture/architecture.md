@@ -58,6 +58,7 @@ Dependencies always point **inward**. `cmd/api/main.go` is the only place that k
 - [ADR-0002 Hexagonal architecture (ports & adapters)](adr/0002-hexagonal-architecture.md)
 - [ADR-0003 Fiber v2 for HTTP, GORM for PostgreSQL](adr/0003-fiber-and-gorm.md)
 - [ADR-0004 Transactional outbox to Kafka with segmentio/kafka-go](adr/0004-transactional-outbox-kafka.md) _(Proposed)_
+- [ADR-0005 Modular monolith: catalog, ordering, payment](adr/0005-modular-monolith-catalog-ordering-payment.md) _(Proposed)_
 
 ## 7. Risks & mitigations
 | Risk | Impact | Mitigation |

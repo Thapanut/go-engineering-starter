@@ -4,6 +4,7 @@
 - **Owner (human):** Thapanut L.
 - **Related:** ADR-0002, ADR-0003, specs [2c2p-payment-webhook](2c2p-payment-webhook.md) and [payment-events-outbox](payment-events-outbox.md), flow [frontend-integration-flow](frontend-integration-flow.md), contracts `listProducts`, `createPayment`, `getPaymentStatus`, `getDemoPaymentEvents`, table `payments`
 - **Size:** M
+- **Superseded in part by [order-flow-modules](order-flow-modules.md) (ADR-0005):** the browser now places orders with the ordering module; `POST /v1/payments`, `GET /v1/products`, and cart pricing moved out of payment. Payment keeps the status endpoint, the demo events endpoint, and `CreatePayment` (called by ordering with the amount).
 
 ## 1. Goal
 Let a browser check out a cart with 2C2P and follow the payment to its final status, so the whole flow (cart → create → 2C2P page → frontend return + webhook → outbox/Kafka → status) can be run locally from one page. Success metric: a payment created from the demo page shows SUCCESS or FAILED within one poll (≤ 2 s) of the webhook being accepted.
