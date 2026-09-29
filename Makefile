@@ -39,13 +39,13 @@ token: ## Mint a dev JWT: make token SUB=demo-customer
 db-up: ## Start PostgreSQL (init SQL applied on first start)
 	docker compose up -d --wait db
 
-db-down: ## Stop PostgreSQL
-	docker compose down
+db-down: ## Stop PostgreSQL (leaves Kafka running)
+	docker compose stop db
 
-db-reset: ## Destroy and recreate the database
-	docker compose down -v && docker compose up -d --wait db
+db-reset: ## Destroy and recreate the database (leaves Kafka untouched)
+	docker compose rm -sfv db && docker compose up -d --wait db
 
-kafka-up: ## Start local Kafka and create the topics (then set KAFKA_BROKERS=localhost:9092)
+kafka-up: ## Start local Kafka and create the topic (then set KAFKA_BROKERS=localhost:9092)
 	docker compose up -d --wait kafka
 	docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic payments.v1.status-changed --partitions 3
